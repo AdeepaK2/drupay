@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import dbConnect from '@/utils/db';
 import User from '@/utils/models/user';
 import OTP from '@/utils/models/otpSchema';
+import Login from '@/utils/models/loginSchema';
 import jwt from 'jsonwebtoken';
 
 export async function POST(req: NextRequest) {
@@ -49,10 +50,41 @@ export async function POST(req: NextRequest) {
     const token = jwt.sign(
       { userId: user._id, email },
       process.env.JWT_SECRET || 'fallback_secret',
-      { expiresIn: '7d' }
+      { expiresIn: '30d' }
     );
     
-    return NextResponse.json({ token, verified: true });
+    // Get IP and location info
+    const ip = req.headers.get('x-forwarded-for') || 'unknown';
+    const userAgent = req.headers.get('user-agent') || 'unknown';
+    
+    // Create login session
+    await Login.create({
+      userId: user._id,
+      email: user.email,
+      deviceId,
+      ipAddress: ip,
+      userAgent,
+      isActive: true
+    });
+    
+    // Create response
+    const response = NextResponse.json({ 
+      verified: true, 
+      message: 'Login successful'
+    });
+    
+    // Set cookie that expires in 30 days
+    response.cookies.set({
+      name: 'auth_token',
+      value: token,
+      httpOnly: true,
+      secure: process.env.NODE_ENV !== 'development',
+      sameSite: 'strict',
+      maxAge: 60 * 60 * 24 * 30, // 30 days in seconds
+      path: '/'
+    });
+    
+    return response;
   } catch (error) {
     console.error('OTP verification error:', error);
     return NextResponse.json(

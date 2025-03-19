@@ -22,17 +22,19 @@ export async function POST(req: NextRequest) {
       isActive: true
     });
     
-    if (!session) {
-      return NextResponse.json(
-        { error: 'No active session found' },
-        { status: 404 }
-      );
+    if (session) {
+      // End session
+      await session.endSession();
     }
     
-    // End session
-    await session.endSession();
+    // Create response and clear cookie
+    const response = NextResponse.json({ 
+      message: 'Logged out successfully' 
+    });
     
-    return NextResponse.json({ message: 'Logged out successfully' });
+    response.cookies.delete('auth_token');
+    
+    return response;
   } catch (error) {
     console.error('Logout error:', error);
     return NextResponse.json(
