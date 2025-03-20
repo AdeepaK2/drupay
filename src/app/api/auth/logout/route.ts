@@ -9,10 +9,21 @@ export async function POST(req: NextRequest) {
     // Get the auth token from cookies
     const token = req.cookies.get('auth_token')?.value;
     
-    // Clear the auth cookie
-    cookies().delete('auth_token');
+    // Create a response object first
+    const response = NextResponse.json({ success: true });
     
-    // If there's a token, mark login sessions as inactive (optional)
+    // Clear the auth cookie with the same attributes as when it was set
+    response.cookies.set({
+      name: 'auth_token',
+      value: '',
+      expires: new Date(0),
+      path: '/',
+      httpOnly: true,
+      secure: process.env.NODE_ENV !== 'development',
+      sameSite: 'lax',
+    });
+    
+    // If there's a token, mark login sessions as inactive
     if (token) {
       try {
         // Verify the token to get user info
@@ -34,7 +45,7 @@ export async function POST(req: NextRequest) {
       }
     }
     
-    return NextResponse.json({ success: true });
+    return response;
   } catch (error) {
     console.error('Logout error:', error);
     return NextResponse.json(

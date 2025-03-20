@@ -31,8 +31,11 @@ export default function Dashboard() {
   const handleLogout = async () => {
     try {
       setIsLoggingOut(true);
+      
+      // Call logout and let AuthContext handle the redirect
       await logout();
-      // No need to redirect here as it's handled in the logout function
+      
+      // No need for router.push as we're doing a full page reload in the logout function
     } catch (error) {
       console.error('Logout error:', error);
       setIsLoggingOut(false);

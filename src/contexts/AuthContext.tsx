@@ -148,33 +148,36 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       setLoading(true);
       
-      // Call logout API
-      const response = await fetch('/api/auth/logout', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-      });
-      
-      // Check if the request was successful
-      if (!response.ok) {
-        const text = await response.text();
-        console.error('Logout failed:', text);
-        throw new Error('Logout failed');
-      }
-      
-      // Clear auth state regardless of response
+      // First update client-side state before API call
+      // This ensures UI updates immediately
       setUser(null);
       setIsAuthenticated(false);
       setLastChecked(0);
       
-      // For extra assurance, also clear any cached state
+      // For extra assurance, clear any cached state
       localStorage.removeItem('lastChecked');
       
-      // Use window.location for hard refresh to ensure cookie is properly cleared
+      // Then call logout API
+      const response = await fetch('/api/auth/logout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include' // Important for cookies
+      });
+      
+      if (!response.ok) {
+        const text = await response.text();
+        console.error('Logout failed:', text);
+        // Don't throw here, we've already cleared the UI state
+      }
+      
+      // Force a hard page reload to truly reset everything
       window.location.href = '/login';
     } catch (error) {
       console.error('Logout error:', error);
       setError(error instanceof Error ? error.message : 'An unknown error occurred');
-      throw error;
+      
+      // Even if there's an error, redirect to login for better UX
+      window.location.href = '/login';
     } finally {
       setLoading(false);
     }
