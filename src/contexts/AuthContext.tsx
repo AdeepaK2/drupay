@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useState, useContext, useEffect, ReactNode } from 'react';
+import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
 
 interface User {
@@ -15,7 +15,7 @@ interface AuthContextType {
   error: string | null;
   isAuthenticated: boolean;
   login: (email: string, password: string, deviceId: string) => Promise<any>;
-  logout: () => Promise<void>; // Modified to not require deviceId
+  logout: () => Promise<void>;
   verifyOtp: (email: string, code: string, deviceId: string) => Promise<any>;
   checkAuth: () => Promise<boolean>;
 }
@@ -24,76 +24,64 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [lastChecked, setLastChecked] = useState(0);
-  const [deviceId, setDeviceId] = useState('');
+  const [isInitializing, setIsInitializing] = useState(true);
   const router = useRouter();
 
-  // Generate a device ID if one doesn't exist
+  // On first load, check authentication status
   useEffect(() => {
-    const storedDeviceId = localStorage.getItem('deviceId');
-    if (storedDeviceId) {
-      setDeviceId(storedDeviceId);
-    } else {
-      const newDeviceId = `device_${Math.random().toString(36).substring(2, 15)}`;
-      localStorage.setItem('deviceId', newDeviceId);
-      setDeviceId(newDeviceId);
-    }
-  }, []);
-
-  // Check session status with throttling (only check once every 5 minutes)
-  const checkSession = async () => {
-    const now = Date.now();
-    // Only check if it's been more than 5 minutes since last check
-    if (now - lastChecked < 300000 && lastChecked !== 0) {
-      return;
-    }
+    const initialAuthCheck = async () => {
+      try {
+        await checkSession();
+      } catch (error) {
+        console.error('Initial auth check error:', error);
+      } finally {
+        setIsInitializing(false);
+      }
+    };
     
+    initialAuthCheck();
+  }, []);
+  
+  const checkSession = async () => {
     try {
-      setLoading(true);
-      const res = await fetch('/api/auth/session', {
-        headers: {
-          'Cache-Control': 'no-cache',
-        },
+      const response = await fetch('/api/auth/session', {
+        method: 'GET',
+        credentials: 'include'
       });
       
-      const data = await res.json();
+      const data = await response.json();
       
       if (data.isLoggedIn && data.user) {
         setUser(data.user);
         setIsAuthenticated(true);
+        setLastChecked(Date.now());
+        return true;
       } else {
         setUser(null);
         setIsAuthenticated(false);
+        return false;
       }
-      
-      setLastChecked(now);
-    } catch (err) {
-      console.error('Session check error:', err);
-      setError('Failed to check authentication status');
-    } finally {
-      setLoading(false);
+    } catch (error) {
+      console.error('Check session error:', error);
+      setUser(null);
+      setIsAuthenticated(false);
+      return false;
     }
   };
-
-  // Initial check on mount
-  useEffect(() => {
-    checkSession();
+  
+  const checkAuth = async (): Promise<boolean> => {
+    // If we already have a user and were authenticated recently, don't do another check
+    const now = Date.now();
+    if (user && isAuthenticated && now - lastChecked < 60000) { // 1 minute cache
+      return true;
+    }
     
-    // Optional: Check session when window regains focus
-    // This helps keep auth state fresh when user returns to the tab
-    const handleFocus = () => {
-      checkSession();
-    };
-    
-    window.addEventListener('focus', handleFocus);
-    
-    return () => {
-      window.removeEventListener('focus', handleFocus);
-    };
-  }, []);
+    return checkSession();
+  };
 
   const login = async (email: string, password: string, deviceId: string) => {
     try {
@@ -237,22 +225,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider
-      value={{
-        user,
-        loading,
-        error,
-        isAuthenticated,
-        login,
-        verifyOtp,
-        logout,
-        checkAuth: async () => {  // Add this function
-          await checkSession();
-          return isAuthenticated;
-        }
-      }}
-    >
-      {children}
+    <AuthContext.Provider value={{
+      user,
+      loading,
+      error,
+      isAuthenticated,
+      login,
+      logout,
+      verifyOtp,
+      checkAuth
+    }}>
+      {!isInitializing ? children : <div>Loading...</div>}
     </AuthContext.Provider>
   );
 }

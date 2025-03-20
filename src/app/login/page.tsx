@@ -4,48 +4,93 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import Link from 'next/link';
+import LoadingSpinner from '@/components/LoadingSpinner';
 
 export default function Login() {
-  const { login, verifyOtp, error: authError, loading, user, checkAuth } = useAuth();
+  const { login, verifyOtp, error: authError, loading: authLoading, isAuthenticated, checkAuth } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [otp, setOtp] = useState('');
   const [error, setError] = useState('');
   const [requiresOTP, setRequiresOTP] = useState(false);
   const [otpEmail, setOtpEmail] = useState('');
+  const [checkingAuth, setCheckingAuth] = useState(true);
+  const [loading, setLoading] = useState(false);
   const router = useRouter();
 
-  // Get device ID from localStorage
+  // Get device ID from localStorage or generate a new one
   const getDeviceId = () => {
     if (typeof window !== 'undefined') {
-      return localStorage.getItem('deviceId') || '';
+      let deviceId = localStorage.getItem('deviceId');
+      if (!deviceId) {
+        deviceId = `device_${Math.random().toString(36).substring(2, 15)}`;
+        localStorage.setItem('deviceId', deviceId);
+      }
+      return deviceId;
     }
     return '';
   };
 
   useEffect(() => {
-    // Check if user is already logged in
+    // Only run this effect once when the component mounts
+    let isMounted = true;
+    
     const checkIfLoggedIn = async () => {
+      if (!isMounted) return;
+      
       try {
+        // Set a timeout to prevent infinite loading
+        const timeoutId = setTimeout(() => {
+          if (isMounted) {
+            console.log("Auth check timed out");
+            setCheckingAuth(false);
+          }
+        }, 5000); // 5 second timeout
+        
         const isAuthed = await checkAuth();
-        console.log("Authentication check result:", isAuthed);
+        
+        // Clear the timeout since we got a response
+        clearTimeout(timeoutId);
+        
+        if (!isMounted) return;
         
         if (isAuthed) {
           console.log("User is authenticated, redirecting to dashboard");
-          router.push('/dashboard');
+          window.location.replace('/dashboard');
+          return;
         }
+        
+        setCheckingAuth(false);
       } catch (err) {
         console.error("Auth check error:", err);
+        if (isMounted) {
+          setCheckingAuth(false);
+        }
       }
     };
     
-    checkIfLoggedIn();
-  }, [checkAuth, router]);
+    // Don't check if we already know we're not authenticated
+    if (!isAuthenticated) {
+      checkIfLoggedIn();
+    } else {
+      window.location.replace('/dashboard');
+    }
+    
+    return () => {
+      isMounted = false;
+    };
+  }, []); // Only run on mount
+
+  // Show loading spinner during initial auth check
+  if (checkingAuth) {
+    return <LoadingSpinner />;
+  }
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
       setError('');
+      setLoading(true);
       const deviceId = getDeviceId();
       
       const result = await login(email, password, deviceId);
@@ -57,6 +102,8 @@ export default function Login() {
       }
     } catch (err: any) {
       setError(err.message || 'Login failed');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -64,15 +111,15 @@ export default function Login() {
     e.preventDefault();
     try {
       setError('');
+      setLoading(true);
       const deviceId = getDeviceId();
       
       // Call verifyOtp and handle the response
       await verifyOtp(otpEmail || email, otp, deviceId);
-      
-      // If successful (verifyOtp doesn't throw), redirect to dashboard
-      window.location.href = '/dashboard';
     } catch (err: any) {
       setError(err.message || 'OTP verification failed');
+    } finally {
+      setLoading(false);
     }
   };
 
