@@ -5,49 +5,45 @@ import User from '@/utils/models/user';
 
 export async function GET(req: NextRequest) {
   try {
-    const authCookie = req.cookies.get('auth_token');
+    const token = req.cookies.get('auth_token')?.value;
     
-    if (!authCookie) {
-      return NextResponse.json({ 
-        isLoggedIn: false 
-      });
+    if (!token) {
+      return NextResponse.json({ isLoggedIn: false });
     }
     
-    // Verify token
     try {
-      const decoded = verify(
-        authCookie.value, 
-        process.env.JWT_SECRET || 'fallback_secret'
-      ) as JwtPayload;
+      // Verify the token
+      const decoded = verify(token, process.env.JWT_SECRET || 'fallback_secret') as JwtPayload;
       
+      // Connect to DB
       await dbConnect();
       
-      // Check if user exists
+      // Find user
       const user = await User.findById(decoded.userId).select('-password');
       
       if (!user) {
         return NextResponse.json({ isLoggedIn: false });
       }
       
-      // User is logged in
+      // Return user data
       return NextResponse.json({
         isLoggedIn: true,
         user: {
           _id: user._id,
-          email: user.email,
-          name: user.name
+          name: user.name,
+          email: user.email
+          // Add other fields you need
         }
       });
-    } catch (error) {
+    } catch (jwtError) {
       // Invalid token
-      const response = NextResponse.json({ isLoggedIn: false });
-      response.cookies.delete('auth_token');
-      return response;
+      console.error('Invalid token:', jwtError);
+      return NextResponse.json({ isLoggedIn: false });
     }
   } catch (error) {
     console.error('Session check error:', error);
     return NextResponse.json(
-      { error: 'Failed to check session' },
+      { error: 'Failed to check session', isLoggedIn: false },
       { status: 500 }
     );
   }

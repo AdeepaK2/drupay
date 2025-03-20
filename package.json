@@ -9,7 +9,9 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "antd": "^5.24.4",
     "bcrypt": "^5.1.1",
+    "bcryptjs": "^3.0.2",
     "jsonwebtoken": "^9.0.2",
     "mongodb": "^6.15.0",
     "mongoose": "^8.12.1",

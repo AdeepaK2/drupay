@@ -61,9 +61,23 @@ export function middleware(request: NextRequest) {
   }
 }
 
+// Updated matcher to exclude the POST /api/user endpoint
 export const config = {
   matcher: [
-    '/api/user/:path*',
+    // Only protect GET and PUT requests to /api/user
+    {
+      source: '/api/user',
+      has: [
+        {
+          type: 'header',
+          key: 'x-next-method',
+          value: '(GET|PUT)'
+        }
+      ]
+    },
+    // Or protect specific sub-paths
+    '/api/user/profile',
+    '/api/user/settings',
     '/api/auth/logout',
     // Add other protected routes here
   ],

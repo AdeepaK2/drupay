@@ -1,40 +1,40 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { cookies } from 'next/headers';
 import dbConnect from '@/utils/db';
+import jwt from 'jsonwebtoken';
 import Login from '@/utils/models/loginSchema';
 
 export async function POST(req: NextRequest) {
   try {
-    await dbConnect();
-    const { deviceId } = await req.json();
-    const userId = req.headers.get('userId');
+    // Get the auth token from cookies
+    const token = req.cookies.get('auth_token')?.value;
     
-    if (!userId) {
-      return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 }
-      );
+    // Clear the auth cookie
+    cookies().delete('auth_token');
+    
+    // If there's a token, mark login sessions as inactive (optional)
+    if (token) {
+      try {
+        // Verify the token to get user info
+        const decoded = jwt.verify(token, process.env.JWT_SECRET || 'fallback_secret') as { userId: string };
+        
+        if (decoded.userId) {
+          // Connect to database
+          await dbConnect();
+          
+          // Update all active sessions for this user
+          await Login.updateMany(
+            { userId: decoded.userId, isActive: true },
+            { isActive: false, logoutTime: new Date() }
+          );
+        }
+      } catch (jwtError) {
+        // If token is invalid, just continue with logout
+        console.log('Invalid token during logout:', jwtError);
+      }
     }
     
-    // Find active session
-    const session = await Login.findOne({
-      userId,
-      deviceId,
-      isActive: true
-    });
-    
-    if (session) {
-      // End session
-      await session.endSession();
-    }
-    
-    // Create response and clear cookie
-    const response = NextResponse.json({ 
-      message: 'Logged out successfully' 
-    });
-    
-    response.cookies.delete('auth_token');
-    
-    return response;
+    return NextResponse.json({ success: true });
   } catch (error) {
     console.error('Logout error:', error);
     return NextResponse.json(

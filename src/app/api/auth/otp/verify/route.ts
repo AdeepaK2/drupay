@@ -30,7 +30,7 @@ export async function POST(req: NextRequest) {
     
     if (!otp) {
       return NextResponse.json(
-        { error: 'Invalid or expired OTP' },
+        { error: 'Invalid OTP' },
         { status: 400 }
       );
     }
@@ -38,7 +38,7 @@ export async function POST(req: NextRequest) {
     // Check if OTP is valid
     if (!otp.isValid()) {
       return NextResponse.json(
-        { error: 'OTP has expired' },
+        { error: 'OTP expired' },
         { status: 400 }
       );
     }
@@ -70,17 +70,20 @@ export async function POST(req: NextRequest) {
     // Create response
     const response = NextResponse.json({ 
       verified: true, 
-      message: 'Login successful'
+      message: 'Login successful',
+      userId: user._id,
+      name: user.name,
+      email: user.email
     });
     
-    // Set cookie that expires in 30 days
+    // Set cookie with secure settings
     response.cookies.set({
       name: 'auth_token',
       value: token,
       httpOnly: true,
       secure: process.env.NODE_ENV !== 'development',
-      sameSite: 'strict',
-      maxAge: 60 * 60 * 24 * 30, // 30 days in seconds
+      sameSite: 'lax',
+      maxAge: 60 * 60 * 24 * 30, // 30 days
       path: '/'
     });
     

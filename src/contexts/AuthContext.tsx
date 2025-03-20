@@ -12,12 +12,11 @@ interface User {
 interface AuthContextType {
   user: User | null;
   loading: boolean;
-  requiresOTP: boolean;
-  otpEmail: string;
-  deviceId: string;
-  login: (email: string, password: string) => Promise<void>;
-  verifyOTP: (code: string) => Promise<void>;
-  logout: () => Promise<void>;
+  error: string | null;
+  isAuthenticated: boolean;
+  login: (email: string, password: string, deviceId: string) => Promise<any>;
+  logout: () => Promise<void>; // Modified to not require deviceId
+  verifyOtp: (email: string, code: string, deviceId: string) => Promise<any>;
   checkAuth: () => Promise<boolean>;
 }
 
@@ -26,8 +25,9 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
-  const [requiresOTP, setRequiresOTP] = useState(false);
-  const [otpEmail, setOtpEmail] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [lastChecked, setLastChecked] = useState(0);
   const [deviceId, setDeviceId] = useState('');
   const router = useRouter();
 
@@ -43,37 +43,62 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  // Check auth status on mount
-  useEffect(() => {
-    checkAuth().finally(() => setLoading(false));
-  }, []);
-
-  const checkAuth = async (): Promise<boolean> => {
+  // Check session status with throttling (only check once every 5 minutes)
+  const checkSession = async () => {
+    const now = Date.now();
+    // Only check if it's been more than 5 minutes since last check
+    if (now - lastChecked < 300000 && lastChecked !== 0) {
+      return;
+    }
+    
     try {
-      const response = await fetch('/api/auth/session', {
-        method: 'GET',
-        credentials: 'include',
+      setLoading(true);
+      const res = await fetch('/api/auth/session', {
+        headers: {
+          'Cache-Control': 'no-cache',
+        },
       });
       
-      const data = await response.json();
+      const data = await res.json();
       
       if (data.isLoggedIn && data.user) {
         setUser(data.user);
-        return true;
+        setIsAuthenticated(true);
       } else {
         setUser(null);
-        return false;
+        setIsAuthenticated(false);
       }
-    } catch (error) {
-      console.error('Error checking auth status:', error);
-      setUser(null);
-      return false;
+      
+      setLastChecked(now);
+    } catch (err) {
+      console.error('Session check error:', err);
+      setError('Failed to check authentication status');
+    } finally {
+      setLoading(false);
     }
   };
 
-  const login = async (email: string, password: string) => {
+  // Initial check on mount
+  useEffect(() => {
+    checkSession();
+    
+    // Optional: Check session when window regains focus
+    // This helps keep auth state fresh when user returns to the tab
+    const handleFocus = () => {
+      checkSession();
+    };
+    
+    window.addEventListener('focus', handleFocus);
+    
+    return () => {
+      window.removeEventListener('focus', handleFocus);
+    };
+  }, []);
+
+  const login = async (email: string, password: string, deviceId: string) => {
     try {
       setLoading(true);
+      setError(null);
       
       const response = await fetch('/api/auth/login', {
         method: 'POST',
@@ -81,74 +106,116 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         body: JSON.stringify({ email, password, deviceId }),
       });
       
+      // Check if response is OK before trying to parse JSON
+      if (!response.ok) {
+        const contentType = response.headers.get('content-type');
+        
+        // If not JSON, handle the error differently
+        if (!contentType || !contentType.includes('application/json')) {
+          const text = await response.text();
+          console.error('Non-JSON response:', text);
+          throw new Error('Server returned an invalid response');
+        }
+      }
+      
       const data = await response.json();
       
       if (response.ok) {
         if (data.requiresOTP) {
           // OTP required for first-time login
-          setRequiresOTP(true);
-          setOtpEmail(email);
+          setError('OTP required');
+          return { requiresOTP: true };
         } else {
           // Already authenticated with cookie, fetch user
-          await checkAuth();
+          await checkSession();
           router.push('/dashboard');
+          return data;
         }
       } else {
         throw new Error(data.error || 'Login failed');
       }
     } catch (error) {
       console.error('Login error:', error);
+      setError(error instanceof Error ? error.message : 'Login failed');
       throw error;
     } finally {
       setLoading(false);
     }
+    
+    // After successful login:
+    setLastChecked(Date.now());
+    return checkSession();
   };
 
-  const verifyOTP = async (code: string) => {
-    try {
-      setLoading(true);
-      
-      const response = await fetch('/api/auth/otp/verify', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email: otpEmail,
-          code,
-          deviceId,
-        }),
-      });
-      
-      const data = await response.json();
-      
-      if (response.ok && data.verified) {
-        setRequiresOTP(false);
-        await checkAuth();
-        router.push('/dashboard');
-      } else {
-        throw new Error(data.error || 'Invalid OTP');
-      }
-    } catch (error) {
-      console.error('OTP verification error:', error);
-      throw error;
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const logout = async () => {
+  const logout = async () => { // Modified to not require deviceId
     try {
       setLoading(true);
       
       await fetch('/api/auth/logout', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ deviceId }),
       });
       
       setUser(null);
+      setIsAuthenticated(false);
+      setLastChecked(0);
       router.push('/login');
     } catch (error) {
       console.error('Logout error:', error);
+      setError(error instanceof Error ? error.message : 'An unknown error occurred');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const verifyOtp = async (email: string, code: string, deviceId: string) => {
+    try {
+      console.log('Starting OTP verification for:', email);
+      setLoading(true);
+      setError(null);
+      
+      const response = await fetch('/api/auth/otp/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, code, deviceId }),
+      });
+      
+      // Handle non-JSON responses
+      if (!response.ok) {
+        const contentType = response.headers.get('content-type');
+        if (!contentType || !contentType.includes('application/json')) {
+          const text = await response.text();
+          console.error('Non-JSON response:', text);
+          throw new Error('Server returned an invalid response');
+        }
+      }
+      
+      const data = await response.json();
+      
+      console.log('OTP verification response:', data);
+      
+      if (response.ok && data.verified) {
+        console.log('OTP verified successfully');
+        
+        // Update authentication state
+        setUser({
+          _id: data.userId,
+          email: data.email,
+          name: data.name || data.email
+        });
+        setIsAuthenticated(true);
+        setLastChecked(Date.now());
+        
+        // Use router for navigation instead of window.location
+        router.push('/dashboard');
+        return data;
+      } else {
+        throw new Error(data.error || 'OTP verification failed');
+      }
+    } catch (error) {
+      console.error('OTP verification error:', error);
+      setError(error instanceof Error ? error.message : 'OTP verification failed');
+      throw error;
     } finally {
       setLoading(false);
     }
@@ -159,13 +226,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       value={{
         user,
         loading,
-        requiresOTP,
-        otpEmail,
-        deviceId,
+        error,
+        isAuthenticated,
         login,
-        verifyOTP,
+        verifyOtp,
         logout,
-        checkAuth,
+        checkAuth: async () => {  // Add this function
+          await checkSession();
+          return isAuthenticated;
+        }
       }}
     >
       {children}

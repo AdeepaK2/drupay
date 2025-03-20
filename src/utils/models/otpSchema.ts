@@ -1,14 +1,14 @@
 import mongoose, { Document, Schema } from 'mongoose';
 
-// Interface for OTP document
 export interface IOTP extends Document {
   userId: mongoose.Types.ObjectId;
   email: string;
-  code: string;
   deviceId: string;
-  createdAt: Date;
+  code: string;
   expiresAt: Date;
   isUsed: boolean;
+  createdAt: Date;
+  updatedAt: Date;
   
   // Methods
   isValid(): boolean;
@@ -49,40 +49,21 @@ const otpSchema = new Schema<IOTP>({
     type: Boolean,
     default: false
   }
+}, {
+  timestamps: { createdAt: 'createdAt', updatedAt: 'updatedAt' }
 });
 
-// Check if OTP is valid (not expired and not used)
+// Add your methods
 otpSchema.methods.isValid = function(): boolean {
   return !this.isUsed && new Date() < this.expiresAt;
 };
 
-// Mark OTP as used
 otpSchema.methods.markAsUsed = function(): Promise<IOTP> {
   this.isUsed = true;
   return this.save();
 };
 
-// Static method to generate a new OTP
-otpSchema.statics.generateOTP = function(
-  userId: mongoose.Types.ObjectId,
-  email: string,
-  deviceId: string,
-  expiresInMinutes: number = 10
-): Promise<IOTP> {
-  // Generate a random 6-digit code
-  const code = Math.floor(100000 + Math.random() * 900000).toString();
-  
-  const expiresAt = new Date(Date.now() + expiresInMinutes * 60 * 1000);
-  
-  return this.create({
-    userId,
-    email,
-    code,
-    deviceId,
-    expiresAt
-  });
-};
-
-const OTP = mongoose.model<IOTP>('OTP', otpSchema);
+// Prevent model recompilation
+const OTP = mongoose.models.OTP || mongoose.model<IOTP>('OTP', otpSchema);
 
 export default OTP;

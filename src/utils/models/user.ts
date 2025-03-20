@@ -1,7 +1,6 @@
 import mongoose, { Document, Schema } from 'mongoose';
 import { hash, compare } from 'bcrypt';
 
-
 // Interface for User document
 export interface IUser extends Document {
   email: string;
@@ -32,9 +31,11 @@ const UserSchema = new Schema<IUser>(
     }
   },
   {
-    timestamps: true, // Automatically create createdAt and updatedAt fields
+    timestamps: { createdAt: 'createdAt', updatedAt: 'updatedAt' }
   }
 );
 
+// Prevent model recompilation
+const User = mongoose.models.User || mongoose.model<IUser>('User', UserSchema);
 
-export default mongoose.models.User || mongoose.model<IUser>('User', UserSchema);
+export default User;

@@ -75,6 +75,7 @@ loginSchema.methods.endSession = function(): Promise<ILogin> {
   return this.save();
 };
 
-const Login = mongoose.model<ILogin>('Login', loginSchema);
+// Prevent model recompilation
+const Login = mongoose.models.Login || mongoose.model<ILogin>('Login', loginSchema);
 
 export default Login;

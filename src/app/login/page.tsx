@@ -1,21 +1,60 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import Link from 'next/link';
 
 export default function Login() {
-  const { login, verifyOTP, requiresOTP, loading, otpEmail } = useAuth();
+  const { login, verifyOtp, error: authError, loading, user, checkAuth } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [otp, setOtp] = useState('');
   const [error, setError] = useState('');
+  const [requiresOTP, setRequiresOTP] = useState(false);
+  const [otpEmail, setOtpEmail] = useState('');
+  const router = useRouter();
+
+  // Get device ID from localStorage
+  const getDeviceId = () => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('deviceId') || '';
+    }
+    return '';
+  };
+
+  useEffect(() => {
+    // Check if user is already logged in
+    const checkIfLoggedIn = async () => {
+      try {
+        const isAuthed = await checkAuth();
+        console.log("Authentication check result:", isAuthed);
+        
+        if (isAuthed) {
+          console.log("User is authenticated, redirecting to dashboard");
+          router.push('/dashboard');
+        }
+      } catch (err) {
+        console.error("Auth check error:", err);
+      }
+    };
+    
+    checkIfLoggedIn();
+  }, [checkAuth, router]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
       setError('');
-      await login(email, password);
+      const deviceId = getDeviceId();
+      
+      const result = await login(email, password, deviceId);
+      
+      // If login requires OTP
+      if (result && result.requiresOTP) {
+        setRequiresOTP(true);
+        setOtpEmail(email);
+      }
     } catch (err: any) {
       setError(err.message || 'Login failed');
     }
@@ -25,7 +64,13 @@ export default function Login() {
     e.preventDefault();
     try {
       setError('');
-      await verifyOTP(otp);
+      const deviceId = getDeviceId();
+      
+      // Call verifyOtp and handle the response
+      await verifyOtp(otpEmail || email, otp, deviceId);
+      
+      // If successful (verifyOtp doesn't throw), redirect to dashboard
+      window.location.href = '/dashboard';
     } catch (err: any) {
       setError(err.message || 'OTP verification failed');
     }
@@ -41,9 +86,9 @@ export default function Login() {
           </p>
         </div>
 
-        {error && (
+        {(error || authError) && (
           <div className="p-3 text-sm text-red-700 bg-red-100 rounded-md">
-            {error}
+            {error || authError}
           </div>
         )}
 
