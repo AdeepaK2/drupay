@@ -128,7 +128,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         } else {
           // Already authenticated with cookie, fetch user
           await checkSession();
-          router.push('/dashboard');
+          // Use window.location for hard refresh to ensure cookie is properly recognized
+          window.location.href = '/dashboard'; 
           return data;
         }
       } else {
@@ -141,28 +142,39 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } finally {
       setLoading(false);
     }
-    
-    // After successful login:
-    setLastChecked(Date.now());
-    return checkSession();
   };
 
-  const logout = async () => { // Modified to not require deviceId
+  const logout = async () => {
     try {
       setLoading(true);
       
-      await fetch('/api/auth/logout', {
+      // Call logout API
+      const response = await fetch('/api/auth/logout', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
       });
       
+      // Check if the request was successful
+      if (!response.ok) {
+        const text = await response.text();
+        console.error('Logout failed:', text);
+        throw new Error('Logout failed');
+      }
+      
+      // Clear auth state regardless of response
       setUser(null);
       setIsAuthenticated(false);
       setLastChecked(0);
-      router.push('/login');
+      
+      // For extra assurance, also clear any cached state
+      localStorage.removeItem('lastChecked');
+      
+      // Use window.location for hard refresh to ensure cookie is properly cleared
+      window.location.href = '/login';
     } catch (error) {
       console.error('Logout error:', error);
       setError(error instanceof Error ? error.message : 'An unknown error occurred');
+      throw error;
     } finally {
       setLoading(false);
     }
@@ -206,8 +218,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setIsAuthenticated(true);
         setLastChecked(Date.now());
         
-        // Use router for navigation instead of window.location
-        router.push('/dashboard');
+        // Use window.location for hard refresh to ensure cookie is properly recognized
+        window.location.href = '/dashboard';
         return data;
       } else {
         throw new Error(data.error || 'OTP verification failed');
