@@ -11,7 +11,8 @@ import {
   StudentsContent,
   CentersContent,
   AttendanceContent,
-  MessagesContent
+  MessagesContent,
+  PaymentsContent  // Add this import
 } from '@/components/dashboard';
 
 export default function Dashboard() {
@@ -40,6 +41,8 @@ export default function Dashboard() {
     switch (activeSection) {
       case 'home':
         return <HomeContent user={user} />;
+      case 'payments':  // Add this case
+        return <PaymentsContent />;
       case 'classes':
         return <ClassesContent />;
       case 'students':

@@ -4,3 +4,4 @@ export { default as StudentsContent } from './StudentsContent';
 export { default as CentersContent } from './CentersContent';
 export { default as AttendanceContent } from './AttendanceContent';
 export { default as MessagesContent } from './MessagesContent';
+export { default as PaymentsContent } from './PaymentsContent';  // Add this export

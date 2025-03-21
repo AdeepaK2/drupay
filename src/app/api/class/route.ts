@@ -6,7 +6,7 @@ import Class, { IClass } from '@/utils/models/classSchema';
 connect();
 
 // Generate a unique class ID based on grade and sequential number
-async function generateClassId(grade: number): Promise<string> {
+export async function generateClassId(grade: number): Promise<string> {
   // Format grade to 2 digits (e.g., 6 -> "06")
   const formattedGrade = grade.toString().padStart(2, '0');
   
@@ -35,19 +35,28 @@ async function generateClassId(grade: number): Promise<string> {
   return `${prefix}${formattedNumber}`;
 }
 
-// GET: Fetch all classes or a single class by ID
+// GET: Fetch all classes or filter by criteria
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const classId = searchParams.get('classId');
+    const centerId = searchParams.get('centerId');
 
+    // Filter by classId if provided
     if (classId) {
       const classObj = await Class.findOne({ classId });
       if (!classObj) {
         return NextResponse.json({ message: 'Class not found' }, { status: 404 });
       }
       return NextResponse.json(classObj);
-    } else {
+    } 
+    // Filter by centerId if provided
+    else if (centerId) {
+      const classes = await Class.find({ centerId: parseInt(centerId) });
+      return NextResponse.json(classes);
+    } 
+    // Return all classes if no filters
+    else {
       const classes = await Class.find({});
       return NextResponse.json(classes);
     }
