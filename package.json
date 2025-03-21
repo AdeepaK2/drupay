@@ -9,10 +9,13 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@heroicons/react": "^2.2.0",
+    "@types/lodash": "^4.17.16",
     "antd": "^5.24.4",
     "bcrypt": "^5.1.1",
     "bcryptjs": "^3.0.2",
     "jsonwebtoken": "^9.0.2",
+    "lodash": "^4.17.21",
     "mongodb": "^6.15.0",
     "mongoose": "^8.12.1",
     "next": "15.2.3",
