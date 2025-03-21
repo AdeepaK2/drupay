@@ -110,15 +110,20 @@ export async function PATCH(request: NextRequest) {
     // Create update object, removing sid to avoid trying to update it
     const updateData = { ...body };
     delete updateData.sid;
+    delete updateData._id; // Also remove _id if present to avoid MongoDB errors
     
     // Check if there are any fields to update
     if (Object.keys(updateData).length === 0) {
       return NextResponse.json({ error: 'No fields to update' }, { status: 400 });
     }
     
-    // Special handling for nested fields if needed
-    // For example, if only part of the parent or admissionFeeStatus object is provided,
-    // we need to use dot notation to avoid overwriting the entire object
+    // Handle field name compatibility - if 'date' is present, move it to 'paidDate'
+    if (updateData.admissionFeeStatus?.date && !updateData.admissionFeeStatus.paidDate) {
+      updateData.admissionFeeStatus.paidDate = updateData.admissionFeeStatus.date;
+      delete updateData.admissionFeeStatus.date;
+    }
+    
+    // Special handling for nested fields
     const flattenedUpdate: { [key: string]: any } = {};
     
     Object.keys(updateData).forEach(key => {
@@ -134,6 +139,13 @@ export async function PATCH(request: NextRequest) {
         flattenedUpdate[key] = updateData[key];
       }
     });
+    
+    // Make sure paymentMethod is one of the allowed values
+    if (flattenedUpdate.paymentMethod && !['Cash', 'Invoice'].includes(flattenedUpdate.paymentMethod)) {
+      return NextResponse.json({ 
+        error: 'Invalid payment method. Must be "Cash" or "Invoice".' 
+      }, { status: 400 });
+    }
     
     // Find and update the student
     const updatedStudent = await Student.findOneAndUpdate(
