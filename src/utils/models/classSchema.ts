@@ -7,11 +7,7 @@ export interface IClass extends Document {
   centerId: number; // Changed from mongoose.Types.ObjectId to number
   grade: number;
   subject: string;
-  schedule: {
-    days: string[]; // Array of days: can include one or more days of the week
-    startTime: string;
-    endTime: string;
-  };
+  schedule: string;
   monthlyFee: number;
   createdAt: Date;
   updatedAt: Date;
@@ -48,18 +44,8 @@ const classSchema = new Schema<IClass>(
       required: true,
     },
     schedule: {
-      days: [{
-        type: String,
-        enum: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'],
-      }],
-      startTime: {
-        type: String,
-        required: true,
-      },
-      endTime: {
-        type: String,
-        required: true,
-      },
+      type: String,
+      required: true,
     },
     monthlyFee: {
       type: Number,
@@ -71,7 +57,8 @@ const classSchema = new Schema<IClass>(
   }
 );
 
-// Create and export the model
-export const Class = mongoose.model<IClass>('Class', classSchema);
+// Check if the model is already defined to prevent the "Cannot overwrite model once compiled" error
+const Class = mongoose.models.Class || mongoose.model<IClass>('Class', classSchema);
 
+// Export default
 export default Class;

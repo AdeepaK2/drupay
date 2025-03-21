@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import StudentDetailModal from '../students/StudentDetailModal';
 import StudentEditModal from '../students/StudentEditModal';
-import EnrollmentModal from '../students/EnrollmentModal';
 import { Student } from '@/types/student';
 
 export default function StudentsContent() {
@@ -276,13 +275,6 @@ export default function StudentsContent() {
         onSave={handleStudentUpdate}
       />
       
-      {/* Student Enrollment Modal */}
-      <EnrollmentModal 
-        student={selectedStudent}
-        isOpen={isEnrollmentModalOpen}
-        onClose={() => setIsEnrollmentModalOpen(false)}
-        onEnrollmentComplete={handleEnrollmentComplete}
-      />
     </div>
   );
 }

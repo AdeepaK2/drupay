@@ -42,6 +42,8 @@ const centerSchema: Schema = new Schema(
     }
 );
 
-// Export the model
-const Center = mongoose.model<ICenter>("Center", centerSchema);
+// Check if the model exists before creating a new one
+// This prevents the "Cannot overwrite model" error during hot reloads
+const Center = mongoose.models.Center || mongoose.model<ICenter>("Center", centerSchema);
+
 export default Center;
