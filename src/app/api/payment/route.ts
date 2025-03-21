@@ -2,38 +2,102 @@ import { NextRequest, NextResponse } from 'next/server';
 import connect from '@/utils/db';
 import Payment, { PaymentStatus } from '@/utils/models/paymentSchema';
 import Student from '@/utils/models/studentSchema';
+import Enrollment from '@/utils/models/enrollmentSchema';
 import Class from '@/utils/models/classSchema';
-import Enrollment, { EnrollmentStatus } from '@/utils/models/enrollmentSchema';
-import PaymentGenerationStatus from '@/utils/models/paymentGenerationStatusSchema';
 
-// GET: Fetch payments with filters
-export async function GET(request: NextRequest) {
+// Connect to database
+async function connectDB() {
   try {
     await connect();
-    const { searchParams } = new URL(request.url);
-    const studentId = searchParams.get('studentId');
-    const classId = searchParams.get('classId');
-    const status = searchParams.get('status');
-    const month = searchParams.get('month') ? parseInt(searchParams.get('month')!) : null;
-    const year = searchParams.get('year') ? parseInt(searchParams.get('year')!) : null;
+  } catch (error) {
+    return NextResponse.json({ success: false, message: 'Database connection failed' }, { status: 500 });
+  }
+}
+
+function calculateProratedAmount(monthlyFee: number, enrollmentDate: Date, month: number, year: number): number {
+  // Create date objects for the first and last day of the target month
+  const startOfMonth = new Date(year, month - 1, 1);
+  const endOfMonth = new Date(year, month, 0); 
+  const daysInMonth = endOfMonth.getDate();
+  
+  console.log('Start of month:', startOfMonth);
+  console.log('End of month:', endOfMonth);
+  console.log('Enrollment date:', enrollmentDate);
+  
+  // If enrollment is before the month starts, charge full fee
+  if (enrollmentDate < startOfMonth) {
+    console.log('Enrollment before month - full fee:', monthlyFee);
+    return monthlyFee;
+  }
+  
+  // If enrollment is after the month ends, no charge
+  if (enrollmentDate > endOfMonth) {
+    console.log('Enrollment after month - no fee');
+    return 0;
+  }
+
+  // Calculate the number of weeks in the month (rounded up)
+  const weeksInMonth = Math.ceil(daysInMonth / 7);
+  console.log('Weeks in month:', weeksInMonth);
+  
+  // Calculate which week of the month the enrollment falls in (1-based)
+  const dayOfMonth = enrollmentDate.getDate();
+  const enrollmentWeek = Math.ceil(dayOfMonth / 7);
+  console.log('Enrollment week:', enrollmentWeek);
+  
+  // Calculate remaining weeks in month
+  const remainingWeeks = weeksInMonth - enrollmentWeek + 1;
+  console.log('Remaining weeks:', remainingWeeks);
+  
+  // Proration rules:
+  // 1. If enrolled in first 60% of the month (3 weeks in a 5-week month), charge full fee
+  // 2. If enrolled in last 40% of the month, prorate based on remaining weeks
+  
+  const thresholdWeek = Math.ceil(weeksInMonth * 0.6);
+  console.log('Threshold week:', thresholdWeek);
+  
+  if (enrollmentWeek <= thresholdWeek) {
+    console.log('Enrolled in first 60% of month - full fee:', monthlyFee);
+    return monthlyFee;
+  } else {
+    // Calculate prorated amount based on remaining weeks
+    const proratedAmount = Math.round((remainingWeeks / weeksInMonth) * monthlyFee);
+    console.log('Prorated amount based on weeks:', proratedAmount);
+    return proratedAmount;
+  }
+}
+
+// GET payments with filtering options
+export async function GET(request: NextRequest) {
+  try {
+    await connectDB();
     
+    const searchParams = request.nextUrl.searchParams;
+    const studentSid = searchParams.get('studentId');
+    const classId = searchParams.get('classId');
+    const year = searchParams.get('year') ? parseInt(searchParams.get('year')!) : null;
+    const month = searchParams.get('month') ? parseInt(searchParams.get('month')!) : null;
+    const status = searchParams.get('status');
+    
+    // Build query based on provided parameters
     const query: any = {};
     
-    if (studentId) query['student.sid'] = studentId;
+    if (studentSid) query['student.sid'] = studentSid;
     if (classId) query['class.classId'] = classId;
-    if (status) query.status = status;
-    if (month) query.month = month;
     if (year) query.academicYear = year;
+    if (month) query.month = month;
+    if (status) query.status = status;
     
+    // Pagination
     const page = parseInt(searchParams.get('page') || '1');
-    const limit = parseInt(searchParams.get('limit') || '50');
+    const limit = parseInt(searchParams.get('limit') || '20');
     const skip = (page - 1) * limit;
     
     const payments = await Payment.find(query)
-      .sort({ dueDate: 1 })
+      .sort({ dueDate: -1 })
       .skip(skip)
       .limit(limit);
-      
+    
     const total = await Payment.countDocuments(query);
     
     return NextResponse.json({
@@ -50,106 +114,170 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// POST: Generate monthly payments or create a specific payment
+// POST - Create a new payment record
 export async function POST(request: NextRequest) {
   try {
-    await connect();
+    await connectDB();
+    
     const body = await request.json();
     
-    // Check if current month payments should be auto-generated
-    if (body.checkCurrentMonth === true) {
-      const currentDate = new Date();
-      const month = currentDate.getMonth() + 1; // JavaScript months are 0-indexed
-      const year = currentDate.getFullYear();
-      
-      const result = await generateMonthlyPayments(month, year);
-      return NextResponse.json({
-        ...result,
-        message: `Auto-generated payments for ${month}/${year}: ${result.message}`
-      });
-    }
-    
-    // Batch generation of monthly payments
-    if (body.generateMonthly === true) {
-      if (!body.month || !body.year) {
-        return NextResponse.json({ 
-          error: 'Month and year are required for batch payment generation' 
-        }, { status: 400 });
-      }
-      
-      const result = await generateMonthlyPayments(body.month, body.year);
-      return NextResponse.json(result);
-    }
-    
-    // For creating a single payment
-    const requiredFields = ['student', 'class', 'academicYear', 'month', 'amount', 'paymentMethod'];
+    // Validate required fields
+    const requiredFields = ['studentId', 'classId', 'academicYear', 'month'];
     for (const field of requiredFields) {
       if (!body[field]) {
         return NextResponse.json({ error: `${field} is required` }, { status: 400 });
       }
     }
     
-    // Check for duplicate payment
+    // Find the student
+    const student = await Student.findOne({ sid: body.studentId });
+    if (!student) {
+      return NextResponse.json({ error: 'Student not found' }, { status: 404 });
+    }
+    
+    // Find the class
+    const classObj = await Class.findOne({ classId: body.classId });
+    if (!classObj) {
+      return NextResponse.json({ error: 'Class not found' }, { status: 404 });
+    }
+    
+    // Check if student is enrolled in this class
+    const enrollment = await Enrollment.findOne({
+      'student.sid': body.studentId,
+      'class.classId': body.classId
+    });
+    
+    if (!enrollment) {
+      return NextResponse.json({ error: 'Student is not enrolled in this class' }, { status: 400 });
+    }
+    
+    // Check if payment already exists for this student, class, year and month
     const existingPayment = await Payment.findOne({
-      'student.sid': body.student.sid,
-      'class.classId': body.class.classId,
+      'student.sid': body.studentId,
+      'class.classId': body.classId,
       academicYear: body.academicYear,
       month: body.month
     });
     
     if (existingPayment) {
       return NextResponse.json({ 
-        error: 'Payment record already exists for this student, class, month and year' 
+        error: 'Payment record already exists for this student, class, month and year',
+        payment: existingPayment
       }, { status: 409 });
     }
     
-    const payment = await Payment.create(body);
-    return NextResponse.json(payment, { status: 201 });
+    // Calculate due date (usually last day of the month or can be customized)
+    const dueDate = new Date(body.academicYear, body.month - 1, 28); // 28th of the month
+    
+    // Calculate prorated amount if student joined mid-month
+    // Check if startDate exists in enrollment, otherwise use createdAt as fallback
+    let enrollmentDate;
+    if (enrollment.startDate) {
+      // Make sure we have a proper Date object
+      enrollmentDate = new Date(enrollment.startDate);
+      
+      // Check if the date is valid, if not use createdAt as fallback
+      if (isNaN(enrollmentDate.getTime())) {
+        console.log('Invalid enrollment start date, using createdAt as fallback');
+        enrollmentDate = new Date(enrollment.createdAt);
+      }
+    } else {
+      // Fallback to when the enrollment was created
+      console.log('No enrollment start date found, using createdAt as fallback');
+      enrollmentDate = new Date(enrollment.createdAt);
+    }
+    
+    console.log('Parsed enrollment date:', enrollmentDate);
+    
+    const monthlyFee = classObj.monthlyFee;
+    const amount = calculateProratedAmount(monthlyFee, enrollmentDate, body.month, body.academicYear);
+    
+    // Create payment object
+    const paymentData = {
+      student: {
+        sid: student.sid,
+        name: student.name,
+        email: student.email
+      },
+      class: {
+        classId: classObj.classId,
+        name: classObj.name
+      },
+      academicYear: body.academicYear,
+      month: body.month,
+      amount: amount,
+      dueDate: dueDate,
+      status: PaymentStatus.PENDING,
+      paymentMethod: student.paymentMethod,
+      invoiceSent: false,
+      remindersSent: 0,
+      notes: body.notes || ''
+    };
+    
+    // If amount is 0 (fully prorated), mark as waived
+    if (amount === 0) {
+      paymentData.status = PaymentStatus.WAIVED;
+      paymentData.notes += ' Payment waived due to enrollment after month end.';
+    }
+    
+    const newPayment = await Payment.create(paymentData);
+    
+    // Calculate month details for debugging
+    const endOfMonth = new Date(body.academicYear, body.month, 0);
+    
+    return NextResponse.json({
+      payment: newPayment,
+      debug: {
+        enrollmentDate: enrollmentDate.toString(),
+        startOfMonth: new Date(body.academicYear, body.month - 1, 1).toString(),
+        endOfMonth: endOfMonth.toString(),
+        monthlyFee,
+        calculatedAmount: amount,
+        weeksInMonth: Math.ceil(endOfMonth.getDate() / 7),
+        enrollmentWeek: Math.ceil(enrollmentDate.getDate() / 7)
+      }
+    }, { status: 201 });
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
 
-// PATCH: Update payment status or details
+// PATCH - Update payment status or details
 export async function PATCH(request: NextRequest) {
   try {
-    await connect();
+    await connectDB();
+    
     const body = await request.json();
     
     if (!body._id) {
       return NextResponse.json({ error: 'Payment ID is required' }, { status: 400 });
     }
     
-    const updateData: any = {};
-    
-    // Handle payment status update
-    if (body.status === PaymentStatus.PAID) {
-      updateData.status = PaymentStatus.PAID;
-      updateData.paidDate = body.paidDate || new Date();
-      if (body.receiptNumber) updateData.receiptNumber = body.receiptNumber;
-    } else if (body.status) {
-      updateData.status = body.status;
+    // Special handling for payment status changes
+    if (body.status === PaymentStatus.PAID && !body.paidDate) {
+      body.paidDate = new Date();
     }
     
-    // Handle invoice sent update
-    if (body.invoiceSent === true) {
-      updateData.invoiceSent = true;
-      updateData.invoiceSentDate = body.invoiceSentDate || new Date();
-      if (body.invoiceNumber) updateData.invoiceNumber = body.invoiceNumber;
+    // Update invoice sent status if marked
+    if (body.invoiceSent === true && !body.invoiceSentDate) {
+      body.invoiceSentDate = new Date();
     }
     
-    // Other updates
-    if (body.notes) updateData.notes = body.notes;
-    if (body.amount) updateData.amount = body.amount;
+    // Update reminder count if sent
+    if (body.sendReminder === true) {
+      body.remindersSent = (body.remindersSent || 0) + 1;
+      body.lastReminderDate = new Date();
+      delete body.sendReminder; // Remove the flag before updating
+    }
     
     const updatedPayment = await Payment.findByIdAndUpdate(
       body._id,
-      { $set: updateData },
+      { $set: body },
       { new: true, runValidators: true }
     );
     
     if (!updatedPayment) {
-      return NextResponse.json({ error: 'Payment not found' }, { status: 404 });
+      return NextResponse.json({ error: 'Payment record not found' }, { status: 404 });
     }
     
     return NextResponse.json(updatedPayment);
@@ -158,134 +286,28 @@ export async function PATCH(request: NextRequest) {
   }
 }
 
-// Helper function to generate monthly payments using enrollment data
-async function generateMonthlyPayments(month: number, year: number) {
+// DELETE - Remove a payment record
+export async function DELETE(request: NextRequest) {
   try {
-    // First check if payments were already generated for this month
-    const existingGeneration = await PaymentGenerationStatus.findOne({ month, year });
+    await connectDB();
     
-    // If we already generated payments and the process was complete, we can skip
-    if (existingGeneration && existingGeneration.isComplete) {
-      return {
-        success: true,
-        message: `Payments were already generated for ${month}/${year}`,
-        newCount: 0,
-        skipCount: existingGeneration.count
-      };
+    const searchParams = request.nextUrl.searchParams;
+    const id = searchParams.get('id');
+    
+    if (!id) {
+      return NextResponse.json({ error: 'Payment ID is required' }, { status: 400 });
     }
     
-    // Mark that we're starting generation (in case of interruptions)
-    await PaymentGenerationStatus.findOneAndUpdate(
-      { month, year },
-      { 
-        isComplete: false,
-        generatedAt: new Date(),
-        count: 0
-      },
-      { upsert: true }
-    );
+    const deletedPayment = await Payment.findByIdAndDelete(id);
     
-    // Get all active enrollments
-    const enrollments = await Enrollment.find({ 
-      status: EnrollmentStatus.ACTIVE 
+    if (!deletedPayment) {
+      return NextResponse.json({ error: 'Payment record not found' }, { status: 404 });
+    }
+    
+    return NextResponse.json({ 
+      message: 'Payment record deleted successfully'
     });
-    
-    const payments = [];
-    let newCount = 0;
-    let skipCount = 0;
-    
-    // Generate payments based on active enrollments
-    for (const enrollment of enrollments) {
-      // Check if payment already exists for this enrollment
-      const existingPayment = await Payment.findOne({
-        'student.sid': enrollment.student.sid,
-        'class.classId': enrollment.class.classId,
-        academicYear: year,
-        month: month
-      });
-      
-      if (existingPayment) {
-        skipCount++;
-        continue;
-      }
-      
-      // Get class details to determine fee
-      const classObj = await Class.findOne({ classId: enrollment.class.classId });
-      if (!classObj) continue; // Skip if class no longer exists
-      
-      // Get student details to determine payment method
-      const student = await Student.findOne({ sid: enrollment.student.sid });
-      if (!student) continue; // Skip if student no longer exists
-      
-      // Calculate the due date (e.g., 5th of the month)
-      const dueDate = new Date(year, month - 1, 5);
-      
-      // Calculate the fee (accounting for any adjustments in the enrollment)
-      let amount = classObj.monthlyFee;
-      if (enrollment.feeAdjustment) {
-        if (enrollment.feeAdjustment.type === 'discount') {
-          amount = amount * (1 - (enrollment.feeAdjustment.value / 100));
-        } else if (enrollment.feeAdjustment.type === 'waiver') {
-          amount = 0;
-        } else if (enrollment.feeAdjustment.type === 'custom') {
-          amount = enrollment.feeAdjustment.value;
-        }
-      }
-      
-      const payment = {
-        student: {
-          sid: student.sid,
-          name: student.name,
-          email: student.email
-        },
-        class: {
-          classId: classObj.classId,
-          name: classObj.name
-        },
-        academicYear: year,
-        month: month,
-        amount: amount,
-        dueDate: dueDate,
-        status: amount === 0 ? PaymentStatus.WAIVED : PaymentStatus.PENDING,
-        paymentMethod: student.paymentMethod,
-        invoiceSent: false,
-        remindersSent: 0
-      };
-      
-      payments.push(payment);
-      newCount++;
-    }
-    
-    // Bulk insert all payments
-    if (payments.length > 0) {
-      await Payment.insertMany(payments, { ordered: false });
-    }
-    
-    // Record successful generation
-    await PaymentGenerationStatus.findOneAndUpdate(
-      { month, year },
-      { 
-        isComplete: true,
-        count: newCount
-      },
-      { upsert: true }
-    );
-    
-    return { 
-      success: true, 
-      message: `Generated ${newCount} new payment records, skipped ${skipCount} existing records`,
-      newCount,
-      skipCount
-    };
   } catch (error: any) {
-    console.error("Error generating monthly payments:", error);
-    return { success: false, error: error.message };
+    return NextResponse.json({ error: error.message }, { status: 500 });
   }
-}
-
-// Add this function to your route.ts file
-// Checks if a specific month's payments have been generated
-async function checkMonthlyPaymentsGenerated(month: number, year: number): Promise<boolean> {
-  const status = await PaymentGenerationStatus.findOne({ month, year });
-  return !!status && status.isComplete;
 }
