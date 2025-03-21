@@ -1,27 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server';
-import connect  from '@/utils/db';
+import connect from '@/utils/db';
 import Student from '@/utils/models/studentSchema';
-import mongoose, { Schema } from 'mongoose';
+import Counter from '@/utils/models/counterSchema';
 
-interface ICounter {
-  _id: string;
-  seq: number;
+// Connect to database
+async function connectDB() {
+  try {
+    await connect();
+  } catch (error) {
+    return NextResponse.json({ success: false, message: 'Database connection failed' }, { status: 500 });
+  }
 }
-
-const counterSchema = new Schema<ICounter>({
-  _id: { type: String, required: true },
-  seq: { type: Number, default: 0 }
-});
-
-// Check if model exists before creating to avoid overwrite during hot reloads
-const Counter = mongoose.models.Counter || mongoose.model<ICounter>('Counter', counterSchema);
-
-export default Counter;
 
 // GET all students
 export async function GET(request: NextRequest) {
   try {
-    await connect();
+    await connectDB();
     
     // Extract query parameters for pagination
     const searchParams = request.nextUrl.searchParams;
@@ -53,7 +47,7 @@ export async function GET(request: NextRequest) {
 // POST - Create a new student
 export async function POST(request: NextRequest) {
   try {
-    await connect();
+    await connectDB();
     
     const body = await request.json();
     
@@ -73,7 +67,7 @@ export async function POST(request: NextRequest) {
     
     // Get the next sequence number from counter collection
     const counter = await Counter.findByIdAndUpdate(
-      { _id: 'studentId' },
+      'studentId',
       { $inc: { seq: 1 } },
       { new: true, upsert: true }
     );
@@ -98,7 +92,7 @@ export async function POST(request: NextRequest) {
 
 export async function PATCH(request: NextRequest) {
   try {
-    await connect();
+    await connectDB();
     const body = await request.json();
     
     // Get the student SID which is required for the update
@@ -178,7 +172,7 @@ export async function PATCH(request: NextRequest) {
 // DELETE - Delete a student
 export async function DELETE(request: NextRequest) {
   try {
-    await connect();
+    await connectDB();
     
     const searchParams = request.nextUrl.searchParams;
     const id = searchParams.get('id');

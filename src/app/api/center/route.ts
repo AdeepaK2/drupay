@@ -102,3 +102,45 @@ export async function DELETE(request: NextRequest) {
     return NextResponse.json({ success: false, message: 'Failed to delete center', error }, { status: 500 });
   }
 }
+
+// PUT - Update a center by cid
+export async function PUT(request: NextRequest) {
+  await connectDB();
+  
+  try {
+    const { searchParams } = new URL(request.url);
+    const cid = searchParams.get('cid');
+    
+    if (!cid) {
+      return NextResponse.json({ success: false, message: 'Center ID is required' }, { status: 400 });
+    }
+    
+    const body = await request.json();
+    
+    const updatedCenter = await Center.findOneAndUpdate(
+      { cid: parseInt(cid) },
+      { 
+        name: body.name,
+        location: body.location,
+        admissionFee: body.admissionFee
+      },
+      { new: true } // Return the updated document
+    );
+    
+    if (!updatedCenter) {
+      return NextResponse.json({ success: false, message: 'Center not found' }, { status: 404 });
+    }
+    
+    return NextResponse.json({ 
+      success: true, 
+      message: 'Center updated successfully',
+      data: updatedCenter
+    }, { status: 200 });
+  } catch (error: any) {
+    return NextResponse.json({ 
+      success: false, 
+      message: 'Failed to update center', 
+      error: error.message 
+    }, { status: 500 });
+  }
+}

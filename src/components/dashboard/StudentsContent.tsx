@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import StudentDetailModal from '../students/StudentDetailModal';
 import StudentEditModal from '../students/StudentEditModal';
+import EnrollmentModal from '../students/EnrollmentModal';
 import { Student } from '@/types/student';
 
 export default function StudentsContent() {
@@ -16,10 +17,22 @@ export default function StudentsContent() {
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [isEnrollmentModalOpen, setIsEnrollmentModalOpen] = useState(false);
+  const [successMessage, setSuccessMessage] = useState('');
 
   useEffect(() => {
     fetchStudents();
   }, [page, sortOption]);
+
+  // Clear success message after 3 seconds
+  useEffect(() => {
+    if (successMessage) {
+      const timer = setTimeout(() => {
+        setSuccessMessage('');
+      }, 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [successMessage]);
 
   const fetchStudents = async () => {
     try {
@@ -54,6 +67,11 @@ export default function StudentsContent() {
     setIsEditModalOpen(true);
   };
 
+  const openEnrollmentModal = (student: Student) => {
+    setSelectedStudent(student);
+    setIsEnrollmentModalOpen(true);
+  };
+
   const handleStudentUpdate = (updatedStudent: Student) => {
     // Update the student in the local state
     setStudents(prevStudents => 
@@ -62,6 +80,12 @@ export default function StudentsContent() {
       )
     );
     setSelectedStudent(updatedStudent);
+  };
+
+  const handleEnrollmentComplete = () => {
+    setSuccessMessage(`${selectedStudent?.name} has been successfully enrolled in the class.`);
+    // Optionally refresh student data after enrollment
+    fetchStudents();
   };
 
   const filteredStudents = students.filter(student => 
@@ -76,6 +100,21 @@ export default function StudentsContent() {
       <p className="text-gray-700 mb-4">
         View and manage your student information, progress, and enrollment.
       </p>
+      
+      {/* Success message alert */}
+      {successMessage && (
+        <div className="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded mb-4 relative">
+          <span className="block sm:inline">{successMessage}</span>
+          <button 
+            className="absolute top-0 bottom-0 right-0 px-4"
+            onClick={() => setSuccessMessage('')}
+          >
+            <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+      )}
       
       <div className="mt-6 flex flex-col md:flex-row justify-between items-center">
         <div className="relative w-full md:w-auto mb-4 md:mb-0">
@@ -168,10 +207,16 @@ export default function StudentsContent() {
                           View
                         </button>
                         <button 
-                          className="text-indigo-600 hover:text-indigo-900"
+                          className="text-indigo-600 hover:text-indigo-900 mr-3"
                           onClick={() => openEditModal(student)}
                         >
                           Edit
+                        </button>
+                        <button 
+                          className="text-green-600 hover:text-green-900"
+                          onClick={() => openEnrollmentModal(student)}
+                        >
+                          Enroll
                         </button>
                       </td>
                     </tr>
@@ -229,6 +274,14 @@ export default function StudentsContent() {
         isOpen={isEditModalOpen}
         onClose={() => setIsEditModalOpen(false)}
         onSave={handleStudentUpdate}
+      />
+      
+      {/* Student Enrollment Modal */}
+      <EnrollmentModal 
+        student={selectedStudent}
+        isOpen={isEnrollmentModalOpen}
+        onClose={() => setIsEnrollmentModalOpen(false)}
+        onEnrollmentComplete={handleEnrollmentComplete}
       />
     </div>
   );
