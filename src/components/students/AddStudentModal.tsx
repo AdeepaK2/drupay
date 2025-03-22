@@ -34,31 +34,31 @@ const AddStudentModal: React.FC<AddStudentModalProps> = ({ isOpen, onClose, onSu
   // Handle form input changes
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
-    
+  
     if (name.includes('.')) {
       const [parent, child] = name.split('.');
-      
+  
       if (parent === 'parent') {
-        setStudentData(prev => ({
+        setStudentData((prev) => ({
           ...prev,
           parent: {
             ...prev.parent,
-            [child]: value
-          }
+            [child]: value,
+          },
         }));
       } else if (parent === 'admissionFeeStatus') {
-        setStudentData(prev => ({
+        setStudentData((prev) => ({
           ...prev,
           admissionFeeStatus: {
             ...prev.admissionFeeStatus,
-            [child]: value
-          }
+            [child]: value,
+          },
         }));
       }
     } else {
-      setStudentData(prev => ({
+      setStudentData((prev) => ({
         ...prev,
-        [name]: value
+        [name]: value,
       }));
     }
   };
@@ -96,18 +96,25 @@ const AddStudentModal: React.FC<AddStudentModalProps> = ({ isOpen, onClose, onSu
   // Validate current step inputs
   const validateCurrentStep = () => {
     setError('');
-    
+  
     if (step === 1) {
       // Validate student details
       if (!studentData.name || !studentData.email || !studentData.contactNumber) {
         setError('Please fill in all required fields');
         return false;
       }
-      
-      // Simple email validation
+  
+      // Validate email format
       const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
       if (!emailRegex.test(studentData.email)) {
         setError('Please enter a valid email address');
+        return false;
+      }
+  
+      // Validate phone number (10 digits)
+      const phoneRegex = /^\d{10}$/;
+      if (!phoneRegex.test(studentData.contactNumber)) {
+        setError('Please enter a valid 10-digit phone number');
         return false;
       }
     } else if (step === 2) {
@@ -116,14 +123,32 @@ const AddStudentModal: React.FC<AddStudentModalProps> = ({ isOpen, onClose, onSu
         setError('Please provide at least parent name and contact number');
         return false;
       }
-      
+  
+      // Validate parent phone number (10 digits)
+      const phoneRegex = /^\d{10}$/;
+      if (!phoneRegex.test(studentData.parent.contactNumber)) {
+        setError('Please enter a valid 10-digit parent phone number');
+        return false;
+      }
+  
       // If parent email is provided, validate it
       if (studentData.parent.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(studentData.parent.email)) {
         setError('Please enter a valid parent email address');
         return false;
       }
+    } else if (step === 3) {
+      // Set default admission fee to $50 if not changed
+      if (!studentData.admissionFeeStatus.amount) {
+        setStudentData((prev) => ({
+          ...prev,
+          admissionFeeStatus: {
+            ...prev.admissionFeeStatus,
+            amount: 50,
+          },
+        }));
+      }
     }
-    
+  
     return true;
   };
 
