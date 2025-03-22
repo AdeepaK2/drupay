@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import connect from '@/utils/db';
 import Payment, { PaymentStatus } from '@/utils/models/paymentSchema';
 import Student from '@/utils/models/studentSchema';
-import Enrollment from '@/utils/models/enrollmentSchema';
+import Enrollment, { EnrollmentStatus } from '@/utils/models/enrollmentSchema';
 import Class from '@/utils/models/classSchema';
 
 // Connect to database
@@ -78,8 +78,87 @@ export async function GET(request: NextRequest) {
     const year = searchParams.get('year') ? parseInt(searchParams.get('year')!) : null;
     const month = searchParams.get('month') ? parseInt(searchParams.get('month')!) : null;
     const status = searchParams.get('status');
+    const summary = searchParams.get('summary') === 'true';
     
-    // Build query based on provided parameters
+    // If summary is requested, return payment summary stats
+    if (summary && year && month) {
+      // Build query for the specific month
+      const query: any = { academicYear: year, month: month };
+      
+      // Get all payments for the month
+      const allPayments = await Payment.find(query);
+      
+      // Calculate totals
+      let totalReceived = 0;
+      let byCash = 0;
+      let byInvoice = 0;
+      let totalPending = 0;
+      
+      allPayments.forEach(payment => {
+        if (payment.status === PaymentStatus.PAID) {
+          totalReceived += payment.amount || 0;
+          
+          // Count by payment method
+          if (payment.paymentMethod === 'Cash') {
+            byCash += payment.amount || 0;
+          } else if (payment.paymentMethod === 'Invoice') {
+            byInvoice += payment.amount || 0;
+          }
+        } else if (payment.status === PaymentStatus.PENDING) {
+          totalPending += payment.amount || 0;
+        }
+      });
+      
+      // Get missing payments - students who are enrolled but don't have payment records
+      const enrollments = await Enrollment.find({ status: EnrollmentStatus.ACTIVE });
+      const missingPayments = [];
+      
+      for (const enrollment of enrollments) {
+        // Check if there's a payment for this enrollment in the selected month/year
+        const paymentExists = allPayments.some(
+          payment => 
+            payment.student.sid === enrollment.student.sid && 
+            payment.class.classId === enrollment.class.classId
+        );
+        
+        if (!paymentExists) {
+          // Get class information to calculate potential missing amount
+          const classObj = await Class.findOne({ classId: enrollment.class.classId });
+          if (classObj) {
+            const enrollmentDate = enrollment.startDate ? new Date(enrollment.startDate) : new Date(enrollment.createdAt);
+            // Check if enrollment was active during this month
+            const targetMonth = new Date(year, month-1, 1);
+            const nextMonth = new Date(year, month, 1);
+            
+            // Only count if enrollment started before the end of this month
+            if (enrollmentDate < nextMonth) {
+              const amount = calculateProratedAmount(classObj.monthlyFee, enrollmentDate, month, year);
+              
+              if (amount > 0) {
+                totalPending += amount;
+                missingPayments.push({
+                  student: enrollment.student,
+                  class: enrollment.class,
+                  amount,
+                  dueDate: new Date(year, month-1, 28)
+                });
+              }
+            }
+          }
+        }
+      }
+      
+      return NextResponse.json({
+        totalReceived,
+        totalPending,
+        byCash,
+        byInvoice,
+        total: totalReceived + totalPending,
+        missingPayments
+      });
+    }
+    
+    // Standard payment fetching (existing logic)
     const query: any = {};
     
     if (studentSid) query['student.sid'] = studentSid;
@@ -110,6 +189,7 @@ export async function GET(request: NextRequest) {
       }
     });
   } catch (error: any) {
+    console.error('Error in payment GET:', error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }

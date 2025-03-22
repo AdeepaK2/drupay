@@ -1,4 +1,7 @@
+'use client';
+
 import React, { useState, useEffect } from 'react';
+import { useSwipeable } from 'react-swipeable';
 
 // Define TypeScript interfaces
 interface ClassSchedule {
@@ -40,6 +43,7 @@ export default function ClassesContent() {
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
   
   // Enrollment counts
   const [enrollmentCounts, setEnrollmentCounts] = useState<EnrollmentCounts>({});
@@ -69,6 +73,39 @@ export default function ClassesContent() {
     monthlyFee: 0
   };
   const [formData, setFormData] = useState<ClassFormData>(initialFormState);
+
+  // Helper function for haptic feedback
+  const triggerVibration = () => {
+    if ('vibrate' in navigator) {
+      navigator.vibrate(50);
+    }
+  };
+
+  // Pull-to-refresh handler
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    triggerVibration();
+    
+    try {
+      await fetchClasses();
+    } catch (error) {
+      console.error('Refresh error:', error);
+    } finally {
+      setTimeout(() => setIsRefreshing(false), 600);
+    }
+  };
+
+  // Swipe handlers
+  const swipeHandlers = useSwipeable({
+    onSwipedDown: (eventData) => {
+      if (eventData.initial[1] < 60) {
+        handleRefresh();
+      }
+    },
+    delta: 50,
+    preventScrollOnSwipe: false,
+    trackMouse: false
+  });
 
   // Fetch classes on component mount
   useEffect(() => {
@@ -144,6 +181,7 @@ export default function ClassesContent() {
   const addClass = async (classData: ClassFormData) => {
     try {
       setLoading(true);
+      triggerVibration();
       const response = await fetch('/api/class', {
         method: 'POST',
         headers: {
@@ -184,6 +222,7 @@ export default function ClassesContent() {
 
     try {
       setLoading(true);
+      triggerVibration();
 
       const response = await fetch(`/api/class`, {
         method: 'PATCH',
@@ -220,6 +259,7 @@ export default function ClassesContent() {
   const deleteClass = async (classId: string) => {
     try {
       setLoading(true);
+      triggerVibration();
       const response = await fetch(`/api/class?classId=${classId}`, {
         method: 'DELETE',
       });
@@ -253,11 +293,13 @@ export default function ClassesContent() {
 
   // Event handlers
   const openAddModal = () => {
+    triggerVibration();
     setFormData(initialFormState);
     setIsAddModalOpen(true);
   };
 
   const openEditModal = (cls: ClassData) => {
+    triggerVibration();
     setSelectedClass(cls);
 
     // Ensure schedule data is valid or use default
@@ -285,6 +327,7 @@ export default function ClassesContent() {
   };
 
   const openDeleteModal = (cls: ClassData) => {
+    triggerVibration();
     setSelectedClass(cls);
     setIsDeleteModalOpen(true);
   };
@@ -311,6 +354,7 @@ export default function ClassesContent() {
   };
 
   const handleDaysChange = (day: string) => {
+    triggerVibration();
     setFormData(prev => {
       const currentDays = prev.schedule.days;
       const updatedDays = currentDays.includes(day)
@@ -393,37 +437,55 @@ export default function ClassesContent() {
           return a.subject.localeCompare(b.subject);
         case 'fee':
           return a.monthlyFee - b.monthlyFee;
+        case 'students':
+          const countA = enrollmentCounts[a.classId] || 0;
+          const countB = enrollmentCounts[b.classId] || 0;
+          return countB - countA;
         default:
           return 0;
       }
     });
 
   return (
-    <div className="bg-white shadow-md rounded p-4 sm:p-6 max-w-full">
+    <div 
+      className="bg-white shadow-md rounded p-4 sm:p-6 max-w-full"
+      {...swipeHandlers}
+    >
+      {/* Pull-to-refresh indicator */}
+      {isRefreshing && (
+        <div className="flex justify-center items-center pb-4">
+          <div className="h-6 w-6 border-2 border-indigo-600 rounded-full border-t-transparent animate-spin"></div>
+        </div>
+      )}
+      
       <h2 className="text-xl font-semibold mb-2 sm:mb-4">Classes Management</h2>
       
       {/* Success Message */}
       {successMessage && (
-        <div className="bg-green-100 border border-green-400 text-green-700 px-3 py-2 rounded mb-4 relative text-sm">
-          <span className="pr-5 block">{successMessage}</span>
+        <div className="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded-lg mb-4 relative flex items-center">
+          <span className="flex-grow pr-8">{successMessage}</span>
           <button
-            className="absolute top-1 right-1 text-green-700"
+            className="absolute top-3 right-3 text-green-700"
             onClick={() => setSuccessMessage(null)}
           >
-            <span className="text-xl">&times;</span>
+            <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
           </button>
         </div>
       )}
       
       {/* Error Message */}
       {error && (
-        <div className="bg-red-100 border border-red-400 text-red-700 px-3 py-2 rounded mb-4 relative text-sm">
-          <span className="pr-5 block">{error}</span>
+        <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg mb-4 relative flex items-center">
+          <span className="flex-grow pr-8">{error}</span>
           <button
-            className="absolute top-1 right-1 text-red-700"
+            className="absolute top-3 right-3 text-red-700"
             onClick={() => setError(null)}
           >
-            <span className="text-xl">&times;</span>
+            <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
           </button>
         </div>
       )}
@@ -436,13 +498,23 @@ export default function ClassesContent() {
             placeholder="Search classes..."
             value={searchTerm}
             onChange={handleSearch}
-            className="w-full pl-10 pr-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="w-full pl-10 pr-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
-          <div className="absolute left-3 top-2.5">
+          <div className="absolute left-3 top-3.5">
             <svg className="h-5 w-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
             </svg>
           </div>
+          {searchTerm && (
+            <button
+              className="absolute right-3 top-3.5 text-gray-400 hover:text-gray-600"
+              onClick={() => setSearchTerm('')}
+            >
+              <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          )}
         </div>
         
         <div className="flex items-center gap-3 w-full sm:w-auto">
@@ -451,7 +523,7 @@ export default function ClassesContent() {
             id="sort"
             value={sortOption}
             onChange={handleSort}
-            className="border rounded-md py-2 px-3 text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 flex-grow sm:flex-grow-0"
+            className="border rounded-md py-3 px-4 text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 flex-grow sm:flex-grow-0 appearance-none bg-white"
           >
             <option value="name">Name</option>
             <option value="grade">Grade</option>
@@ -459,19 +531,24 @@ export default function ClassesContent() {
             <option value="fee">Fee</option>
             <option value="students">Students</option>
           </select>
+          <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-700">
+            <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
+            </svg>
+          </div>
         </div>
       </div>
       
       {/* Loading indicator */}
       {loading && !classes.length ? (
         <div className="flex justify-center items-center py-10">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
+          <div className="animate-spin rounded-full h-12 w-12 border-4 border-blue-300 border-t-blue-600"></div>
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
           {/* Add New Class Card */}
           <div 
-            className="border border-dashed border-gray-300 rounded-lg p-4 flex flex-col items-center justify-center h-72 cursor-pointer hover:bg-gray-50 transition-colors"
+            className="border border-dashed border-gray-300 rounded-lg p-6 flex flex-col items-center justify-center h-72 cursor-pointer hover:bg-gray-50 active:bg-gray-100 transition-colors"
             onClick={openAddModal}
           >
             <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mb-3">
@@ -489,7 +566,7 @@ export default function ClassesContent() {
           {filteredAndSortedClasses.map((cls) => (
             <div 
               key={cls._id} 
-              className="bg-white border rounded-lg shadow-sm overflow-hidden h-72 flex flex-col transition-shadow hover:shadow-md"
+              className="bg-white border rounded-lg shadow-sm overflow-hidden h-72 flex flex-col transition-shadow hover:shadow-md active:shadow-inner"
             >
               {/* Class Header */}
               <div className="p-4 bg-gradient-to-r from-blue-500 to-blue-600 text-white">
@@ -531,21 +608,25 @@ export default function ClassesContent() {
               </div>
               
               {/* Actions */}
-              <div className="border-t p-3 bg-gray-50 mt-auto">
-                <div className="flex justify-between">
-                  <button
-                    onClick={() => openEditModal(cls)}
-                    className="text-blue-600 hover:text-blue-800 text-sm font-medium"
-                  >
-                    Edit
-                  </button>
-                  <button
-                    onClick={() => openDeleteModal(cls)}
-                    className="text-red-600 hover:text-red-800 text-sm font-medium"
-                  >
-                    Delete
-                  </button>
-                </div>
+              <div className="border-t p-3 bg-gray-50 mt-auto flex">
+                <button
+                  onClick={() => openEditModal(cls)}
+                  className="flex-1 py-2.5 flex items-center justify-center text-blue-600 hover:bg-blue-50 active:bg-blue-100 rounded-md mr-2 transition-colors"
+                >
+                  <svg className="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                  </svg>
+                  Edit
+                </button>
+                <button
+                  onClick={() => openDeleteModal(cls)}
+                  className="flex-1 py-2.5 flex items-center justify-center text-red-600 hover:bg-red-50 active:bg-red-100 rounded-md transition-colors"
+                >
+                  <svg className="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                  </svg>
+                  Delete
+                </button>
               </div>
             </div>
           ))}
@@ -564,17 +645,18 @@ export default function ClassesContent() {
       {/* Add/Edit Class Modal */}
       {(isAddModalOpen || isEditModalOpen) && (
         <div className="fixed inset-0 bg-gray-600 bg-opacity-75 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg shadow-xl max-w-md w-full max-h-[90vh] overflow-y-auto">
+          <div className="bg-white rounded-xl shadow-xl max-w-md w-full max-h-[90vh] overflow-y-auto">
             <div className="sticky top-0 bg-white px-6 py-4 border-b flex justify-between items-center">
               <h2 className="text-lg font-semibold">
                 {isEditModalOpen ? "Edit Class" : "Add New Class"}
               </h2>
               <button
                 onClick={() => {
+                  triggerVibration();
                   setIsAddModalOpen(false);
                   setIsEditModalOpen(false);
                 }}
-                className="text-gray-400 hover:text-gray-600"
+                className="p-2 text-gray-400 hover:text-gray-600 rounded-full hover:bg-gray-100 active:bg-gray-200"
               >
                 <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -584,7 +666,7 @@ export default function ClassesContent() {
             
             <form onSubmit={handleSubmit} className="p-6">
               <div className="mb-4">
-                <label className="block text-gray-700 text-sm font-bold mb-2">
+                <label className="block text-gray-700 text-sm font-medium mb-2">
                   Class Name
                 </label>
                 <input
@@ -592,22 +674,23 @@ export default function ClassesContent() {
                   name="name"
                   value={formData.name}
                   onChange={handleFormChange}
-                  className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
+                  className="border rounded-lg w-full py-3 px-4 text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   required
                 />
               </div>
               
               <div className="grid grid-cols-2 gap-4 mb-4">
                 <div>
-                  <label className="block text-gray-700 text-sm font-bold mb-2">
+                  <label className="block text-gray-700 text-sm font-medium mb-2">
                     Grade Level
                   </label>
                   <input
                     type="number"
+                    inputMode="numeric"
                     name="grade"
                     value={formData.grade}
                     onChange={handleFormChange}
-                    className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
+                    className="border rounded-lg w-full py-3 px-4 text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
                     min="1"
                     max="12"
                     required
@@ -615,15 +698,16 @@ export default function ClassesContent() {
                 </div>
                 
                 <div>
-                  <label className="block text-gray-700 text-sm font-bold mb-2">
+                  <label className="block text-gray-700 text-sm font-medium mb-2">
                     Center ID
                   </label>
                   <input
                     type="number"
+                    inputMode="numeric"
                     name="centerId"
                     value={formData.centerId}
                     onChange={handleFormChange}
-                    className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
+                    className="border rounded-lg w-full py-3 px-4 text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
                     min="1"
                     required
                   />
@@ -631,7 +715,7 @@ export default function ClassesContent() {
               </div>
               
               <div className="mb-4">
-                <label className="block text-gray-700 text-sm font-bold mb-2">
+                <label className="block text-gray-700 text-sm font-medium mb-2">
                   Subject
                 </label>
                 <input
@@ -639,42 +723,51 @@ export default function ClassesContent() {
                   name="subject"
                   value={formData.subject}
                   onChange={handleFormChange}
-                  className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
+                  className="border rounded-lg w-full py-3 px-4 text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   required
                 />
               </div>
               
               <div className="mb-4">
-                <label className="block text-gray-700 text-sm font-bold mb-2">
+                <label className="block text-gray-700 text-sm font-medium mb-2">
                   Monthly Fee ($)
                 </label>
-                <input
-                  type="number"
-                  name="monthlyFee"
-                  value={formData.monthlyFee}
-                  onChange={handleFormChange}
-                  className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
-                  min="0"
-                  step="0.01"
-                  required
-                />
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                    <span className="text-gray-500">$</span>
+                  </div>
+                  <input
+                    type="number"
+                    inputMode="decimal"
+                    name="monthlyFee"
+                    value={formData.monthlyFee}
+                    onChange={handleFormChange}
+                    className="border rounded-lg w-full pl-10 pr-4 py-3 text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    min="0"
+                    step="0.01"
+                    required
+                  />
+                </div>
               </div>
               
               <div className="mb-4">
-                <label className="block text-gray-700 text-sm font-bold mb-2">
+                <label className="block text-gray-700 text-sm font-medium mb-2">
                   Schedule Days
                 </label>
-                <div className="flex flex-wrap gap-x-3 gap-y-2">
+                <div className="grid grid-cols-3 sm:grid-cols-7 gap-2 mb-2">
                   {['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'].map(day => (
-                    <div key={day} className="flex items-center">
-                      <input
-                        type="checkbox"
-                        id={`day-${day}`}
-                        checked={formData.schedule.days.includes(day)}
-                        onChange={() => handleDaysChange(day)}
-                        className="mr-1"
-                      />
-                      <label htmlFor={`day-${day}`} className="text-xs sm:text-sm">{day.substring(0, 3)}</label>
+                    <div 
+                      key={day} 
+                      onClick={() => handleDaysChange(day)}
+                      className={`
+                        border rounded-lg p-3 text-center text-sm cursor-pointer transition-colors
+                        ${formData.schedule.days.includes(day) ? 
+                          'bg-blue-100 border-blue-300 text-blue-700' : 
+                          'border-gray-300 hover:bg-gray-50 active:bg-gray-100'
+                        }
+                      `}
+                    >
+                      {day.substring(0, 3)}
                     </div>
                   ))}
                 </div>
@@ -682,7 +775,7 @@ export default function ClassesContent() {
               
               <div className="grid grid-cols-2 gap-4 mb-6">
                 <div>
-                  <label className="block text-gray-700 text-sm font-bold mb-2">
+                  <label className="block text-gray-700 text-sm font-medium mb-2">
                     Start Time
                   </label>
                   <input
@@ -690,13 +783,13 @@ export default function ClassesContent() {
                     name="schedule.startTime"
                     value={formData.schedule.startTime}
                     onChange={handleFormChange}
-                    className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
+                    className="border rounded-lg w-full py-3 px-4 text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
                     required
                   />
                 </div>
                 
                 <div>
-                  <label className="block text-gray-700 text-sm font-bold mb-2">
+                  <label className="block text-gray-700 text-sm font-medium mb-2">
                     End Time
                   </label>
                   <input
@@ -704,29 +797,37 @@ export default function ClassesContent() {
                     name="schedule.endTime"
                     value={formData.schedule.endTime}
                     onChange={handleFormChange}
-                    className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
+                    className="border rounded-lg w-full py-3 px-4 text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
                     required
                   />
                 </div>
               </div>
               
-              <div className="flex items-center justify-end gap-3">
+              <div className="flex flex-col sm:flex-row items-center gap-3 sm:justify-end">
                 <button
                   type="button"
                   onClick={() => {
+                    triggerVibration();
                     setIsAddModalOpen(false);
                     setIsEditModalOpen(false);
                   }}
-                  className="px-4 py-2 bg-gray-300 text-gray-800 rounded hover:bg-gray-400 text-sm"
+                  className="w-full sm:w-auto px-6 py-3 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300 active:bg-gray-400 text-sm font-medium"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 text-sm"
+                  className="w-full sm:w-auto px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 active:bg-blue-800 text-sm font-medium disabled:opacity-70"
                   disabled={loading}
                 >
-                  {loading ? 'Saving...' : isEditModalOpen ? 'Update Class' : 'Add Class'}
+                  {loading ? (
+                    <div className="flex items-center justify-center">
+                      <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
+                      {isEditModalOpen ? 'Updating...' : 'Adding...'}
+                    </div>
+                  ) : (
+                    isEditModalOpen ? 'Update Class' : 'Add Class'
+                  )}
                 </button>
               </div>
             </form>
@@ -737,30 +838,65 @@ export default function ClassesContent() {
       {/* Delete Confirmation Modal */}
       {isDeleteModalOpen && selectedClass && (
         <div className="fixed inset-0 bg-gray-600 bg-opacity-75 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg shadow-xl p-6 max-w-sm w-full">
+          <div className="bg-white rounded-xl shadow-xl p-6 max-w-sm w-full">
             <h2 className="text-lg font-semibold mb-4 text-red-600">Delete Class</h2>
             <p className="mb-6 text-sm sm:text-base">
               Are you sure you want to delete the class "{selectedClass.name}"? This action cannot be undone.
             </p>
             
-            <div className="flex items-center justify-end gap-3">
+            <div className="flex flex-col sm:flex-row items-center gap-3 sm:justify-end">
               <button
-                onClick={() => setIsDeleteModalOpen(false)}
-                className="px-4 py-2 bg-gray-300 text-gray-800 rounded hover:bg-gray-400 text-sm"
+                onClick={() => {
+                  triggerVibration();
+                  setIsDeleteModalOpen(false);
+                }}
+                className="w-full sm:w-auto px-6 py-3 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300 active:bg-gray-400 text-sm font-medium"
               >
                 Cancel
               </button>
               <button
                 onClick={() => deleteClass(selectedClass.classId)}
-                className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 text-sm"
+                className="w-full sm:w-auto px-6 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 active:bg-red-800 text-sm font-medium disabled:opacity-70"
                 disabled={loading}
               >
-                {loading ? 'Deleting...' : 'Delete Class'}
+                {loading ? (
+                  <div className="flex items-center justify-center">
+                    <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
+                    Deleting...
+                  </div>
+                ) : (
+                  'Delete Class'
+                )}
               </button>
             </div>
           </div>
         </div>
       )}
+
+      {/* Floating action button for mobile */}
+      <button 
+        onClick={() => {
+          triggerVibration();
+          openAddModal();
+        }}
+        className="md:hidden fixed right-4 bottom-20 bg-blue-600 text-white h-14 w-14 rounded-full shadow-lg flex items-center justify-center active:bg-blue-700"
+        aria-label="Add new class"
+      >
+        <svg className="h-7 w-7" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+        </svg>
+      </button>
+
+      {/* Floating refresh button for mobile */}
+      <button 
+        onClick={handleRefresh}
+        className="md:hidden fixed right-4 bottom-40 bg-white text-blue-600 h-12 w-12 rounded-full border border-blue-200 shadow-md flex items-center justify-center active:bg-blue-50"
+        aria-label="Refresh classes"
+      >
+        <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+        </svg>
+      </button>
     </div>
   );
 }

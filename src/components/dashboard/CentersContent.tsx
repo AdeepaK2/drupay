@@ -1,5 +1,8 @@
+'use client';
+
 import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { useSwipeable } from 'react-swipeable';
 
 // Define Center interface
 interface Center {
@@ -16,6 +19,7 @@ export default function CentersContent() {
   const [classCounts, setClassCounts] = useState<{ [key: number]: number }>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   // State for edit modal
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
@@ -55,6 +59,39 @@ export default function CentersContent() {
     "text-amber-700",
     "text-emerald-700",
   ];
+
+  // Helper function for haptic feedback
+  const triggerVibration = () => {
+    if ('vibrate' in navigator) {
+      navigator.vibrate(50);
+    }
+  };
+
+  // Pull-to-refresh handler
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    triggerVibration();
+    
+    try {
+      await fetchCenters();
+    } catch (error) {
+      console.error('Refresh error:', error);
+    } finally {
+      setTimeout(() => setIsRefreshing(false), 600);
+    }
+  };
+
+  // Swipe handlers
+  const swipeHandlers = useSwipeable({
+    onSwipedDown: (eventData) => {
+      if (eventData.initial[1] < 60) {
+        handleRefresh();
+      }
+    },
+    delta: 50,
+    preventScrollOnSwipe: false,
+    trackMouse: false
+  });
 
   useEffect(() => {
     fetchCenters();
@@ -137,10 +174,12 @@ export default function CentersContent() {
   };
 
   const handleManageClick = (cid: number) => {
+    triggerVibration();
     router.push(`/${cid}`);
   };
 
   const handleEditClick = (center: Center) => {
+    triggerVibration();
     setSelectedCenter(center);
     setEditForm({
       name: center.name,
@@ -152,6 +191,7 @@ export default function CentersContent() {
   };
 
   const closeModal = () => {
+    triggerVibration();
     setIsEditModalOpen(false);
     setSelectedCenter(null);
     setUpdateError(null);
@@ -167,6 +207,7 @@ export default function CentersContent() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    triggerVibration();
 
     if (!selectedCenter) return;
 
@@ -211,7 +252,7 @@ export default function CentersContent() {
 
   if (loading) {
     return (
-      <div className="bg-white shadow-md rounded p-6">
+      <div className="bg-white shadow-md rounded-lg p-4 sm:p-6">
         <h2 className="text-xl font-semibold mb-4">Learning Centers</h2>
         <div className="flex justify-center items-center h-64">
           <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-indigo-500"></div>
@@ -222,17 +263,20 @@ export default function CentersContent() {
 
   if (error) {
     return (
-      <div className="bg-white shadow-md rounded p-6">
+      <div className="bg-white shadow-md rounded-lg p-4 sm:p-6">
         <h2 className="text-xl font-semibold mb-4">Learning Centers</h2>
-        <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
+        <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg">
           <p className="mb-2">Error: {error}</p>
           <div className="text-xs mb-2">
             If you're seeing a message about invalid JSON or DOCTYPE, your API
             server might not be running correctly.
           </div>
           <button
-            onClick={() => window.location.reload()}
-            className="mt-3 bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded"
+            onClick={() => {
+              triggerVibration();
+              window.location.reload();
+            }}
+            className="mt-3 bg-red-500 hover:bg-red-600 text-white px-4 py-3 rounded-md active:bg-red-700 text-sm font-medium"
           >
             Retry
           </button>
@@ -242,8 +286,15 @@ export default function CentersContent() {
   }
 
   return (
-    <div className="bg-white shadow-md rounded p-6">
-      <h2 className="text-xl font-semibold mb-4">Learning Centers</h2>
+    <div className="bg-white shadow-md rounded-lg p-4 sm:p-6" {...swipeHandlers}>
+      {/* Pull-to-refresh indicator */}
+      {isRefreshing && (
+        <div className="flex justify-center items-center pb-4">
+          <div className="h-6 w-6 border-2 border-indigo-600 rounded-full border-t-transparent animate-spin"></div>
+        </div>
+      )}
+      
+      <h2 className="text-xl font-semibold mb-2">Learning Centers</h2>
       <p className="text-gray-700 mb-4">
         Manage your educational centers and facility information.
       </p>
@@ -253,13 +304,19 @@ export default function CentersContent() {
           <p className="text-gray-500">
             No centers found. Please add a center to get started.
           </p>
+          <button
+            onClick={() => triggerVibration()}
+            className="mt-4 px-5 py-3 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 active:bg-indigo-800"
+          >
+            Add New Center
+          </button>
         </div>
       ) : (
         <div className="mt-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {centers.map((center, index) => (
             <div
               key={center._id}
-              className="border rounded-lg overflow-hidden shadow-md hover:shadow-lg transition-shadow"
+              className="border rounded-xl overflow-hidden shadow-md hover:shadow-lg transition-shadow"
             >
               <div
                 className={`${bgColors[index % bgColors.length]} p-6 relative`}
@@ -313,14 +370,14 @@ export default function CentersContent() {
                 <div className="mt-4 flex space-x-2">
                   <button
                     onClick={() => handleManageClick(center.cid)}
-                    className="flex-1 py-2 px-4 rounded font-medium text-white bg-blue-600 hover:bg-blue-700"
+                    className="flex-1 py-3 px-4 rounded-lg font-medium text-white bg-blue-600 hover:bg-blue-700 active:bg-blue-800 transition-colors"
                   >
                     Manage
                   </button>
 
                   <button
                     onClick={() => handleEditClick(center)}
-                    className="flex-1 py-2 px-4 rounded font-medium text-gray-700 border border-gray-300 hover:bg-gray-50"
+                    className="flex-1 py-3 px-4 rounded-lg font-medium text-gray-700 border border-gray-300 hover:bg-gray-50 active:bg-gray-100 transition-colors"
                   >
                     Edit
                   </button>
@@ -331,45 +388,58 @@ export default function CentersContent() {
         </div>
       )}
 
-      {/* Edit Modal */}
+      {/* Add center floating action button for mobile */}
+      <div className="md:hidden fixed right-4 bottom-20">
+        <button 
+          onClick={() => triggerVibration()}
+          className="h-14 w-14 bg-indigo-600 text-white rounded-full shadow-lg flex items-center justify-center active:bg-indigo-700"
+          aria-label="Add new center"
+        >
+          <svg className="h-7 w-7" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+          </svg>
+        </button>
+      </div>
+
+      {/* Edit Modal - adapted for mobile */}
       {isEditModalOpen && selectedCenter && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg shadow-xl max-w-md w-full">
-            <div className="p-6">
-              <div className="flex justify-between items-center mb-4">
-                <h3 className="text-xl font-semibold">
-                  Edit Center #{selectedCenter.cid}
-                </h3>
-                <button
-                  onClick={closeModal}
-                  className="text-gray-500 hover:text-gray-700"
+          <div className="bg-white rounded-xl shadow-xl max-w-md w-full overflow-hidden">
+            <div className="flex justify-between items-center p-5 border-b border-gray-200">
+              <h3 className="text-xl font-semibold">
+                Edit Center #{selectedCenter.cid}
+              </h3>
+              <button
+                onClick={closeModal}
+                className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-full"
+              >
+                <svg
+                  className="w-6 h-6"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
                 >
-                  <svg
-                    className="w-6 h-6"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth="2"
-                      d="M6 18L18 6M6 6l12 12"
-                    />
-                  </svg>
-                </button>
-              </div>
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth="2"
+                    d="M6 18L18 6M6 6l12 12"
+                  />
+                </svg>
+              </button>
+            </div>
 
+            <div className="p-5">
               {updateError && (
-                <div className="bg-red-100 text-red-700 p-3 rounded mb-4">
+                <div className="bg-red-100 text-red-700 p-4 rounded-lg mb-4">
                   {updateError}
                 </div>
               )}
 
-              <form onSubmit={handleSubmit}>
-                <div className="mb-4">
+              <form onSubmit={handleSubmit} className="space-y-5">
+                <div>
                   <label
-                    className="block text-gray-700 text-sm font-bold mb-2"
+                    className="block text-gray-700 text-sm font-medium mb-2"
                     htmlFor="name"
                   >
                     Center Name
@@ -380,14 +450,14 @@ export default function CentersContent() {
                     type="text"
                     value={editForm.name}
                     onChange={handleInputChange}
-                    className="w-full p-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full p-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
                     required
                   />
                 </div>
 
-                <div className="mb-4">
+                <div>
                   <label
-                    className="block text-gray-700 text-sm font-bold mb-2"
+                    className="block text-gray-700 text-sm font-medium mb-2"
                     htmlFor="location"
                   >
                     Location
@@ -398,48 +468,54 @@ export default function CentersContent() {
                     type="text"
                     value={editForm.location}
                     onChange={handleInputChange}
-                    className="w-full p-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full p-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
                     required
                   />
                 </div>
 
-                <div className="mb-6">
+                <div>
                   <label
-                    className="block text-gray-700 text-sm font-bold mb-2"
+                    className="block text-gray-700 text-sm font-medium mb-2"
                     htmlFor="admissionFee"
                   >
                     Admission Fee ($)
                   </label>
-                  <input
-                    id="admissionFee"
-                    name="admissionFee"
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={editForm.admissionFee}
-                    onChange={handleInputChange}
-                    className="w-full p-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    required
-                  />
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                      <span className="text-gray-500">$</span>
+                    </div>
+                    <input
+                      id="admissionFee"
+                      name="admissionFee"
+                      type="number"
+                      inputMode="decimal"
+                      min="0"
+                      step="0.01"
+                      value={editForm.admissionFee}
+                      onChange={handleInputChange}
+                      className="w-full pl-10 pr-3 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      required
+                    />
+                  </div>
                 </div>
 
-                <div className="flex justify-end space-x-3">
+                <div className="flex flex-col sm:flex-row justify-end space-y-3 sm:space-y-0 sm:space-x-3 pt-4">
                   <button
                     type="button"
                     onClick={closeModal}
-                    className="px-4 py-2 border border-gray-300 rounded text-gray-700 hover:bg-gray-50"
+                    className="w-full sm:w-auto px-4 py-3 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 active:bg-gray-100"
                     disabled={isUpdating}
                   >
                     Cancel
                   </button>
                   <button
                     type="submit"
-                    className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:bg-blue-300"
+                    className="w-full sm:w-auto px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 active:bg-blue-800 disabled:bg-blue-300 disabled:cursor-not-allowed"
                     disabled={isUpdating}
                   >
                     {isUpdating ? (
-                      <div className="flex items-center">
-                        <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
+                      <div className="flex items-center justify-center">
+                        <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
                         Updating...
                       </div>
                     ) : (
@@ -452,6 +528,17 @@ export default function CentersContent() {
           </div>
         </div>
       )}
+
+      {/* Floating refresh button for mobile */}
+      <button 
+        onClick={handleRefresh}
+        className="md:hidden fixed right-4 bottom-40 bg-white text-indigo-600 h-12 w-12 rounded-full border border-indigo-200 shadow-md flex items-center justify-center active:bg-indigo-50"
+        aria-label="Refresh centers"
+      >
+        <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+        </svg>
+      </button>
     </div>
   );
 }

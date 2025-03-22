@@ -1,7 +1,8 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
-import { CheckCircleIcon, ClockIcon } from '@heroicons/react/24/solid';
+import React, { useState, useEffect, useRef } from 'react';
+import { CheckCircleIcon, ClockIcon, MagnifyingGlassIcon } from '@heroicons/react/24/solid';
+import { useSwipeable } from 'react-swipeable';
 
 interface Class {
   _id: string;
@@ -62,6 +63,57 @@ export function PaymentByClass({ onPaymentSuccess }: PaymentByClassProps) {
   const [loadingStudents, setLoadingStudents] = useState<boolean>(false);
   const [processingPayment, setProcessingPayment] = useState<string | null>(null);
   const [paymentStatus, setPaymentStatus] = useState<{[key: string]: PaymentStatus}>({});
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  
+  // Refs for scroll handling
+  const classListRef = useRef<HTMLDivElement>(null);
+  const studentListRef = useRef<HTMLDivElement>(null);
+
+  // Helper function for haptic feedback
+  const triggerVibration = () => {
+    if ('vibrate' in navigator) {
+      navigator.vibrate(50);
+    }
+  };
+
+  // Pull-to-refresh handler
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    triggerVibration();
+    
+    try {
+      await fetchClasses();
+      if (selectedClass) {
+        await fetchEnrolledStudents(selectedClass.classId);
+      }
+    } catch (error) {
+      console.error('Refresh error:', error);
+    } finally {
+      setTimeout(() => setIsRefreshing(false), 600);
+    }
+  };
+
+  // Swipe handlers for pull-to-refresh
+  interface SwipeEventData {
+    initial: [number, number];
+    deltaX: number;
+    deltaY: number;
+    velocity: number;
+    dir: string;
+    absX: number;
+    absY: number;
+  }
+
+  const swipeHandlers = useSwipeable({
+    onSwipedDown: (eventData: SwipeEventData) => {
+      if (eventData.initial[1] < 60) {
+        handleRefresh();
+      }
+    },
+    delta: 50,
+    preventScrollOnSwipe: false,
+    trackMouse: false
+  });
 
   useEffect(() => {
     fetchClasses();
@@ -70,6 +122,12 @@ export function PaymentByClass({ onPaymentSuccess }: PaymentByClassProps) {
   useEffect(() => {
     if (selectedClass) {
       fetchEnrolledStudents(selectedClass.classId);
+      // Scroll to student list on mobile
+      setTimeout(() => {
+        if (studentListRef.current) {
+          studentListRef.current.scrollIntoView({ behavior: 'smooth' });
+        }
+      }, 300);
     } else {
       setEnrolledStudents([]);
       setPaymentStatus({});
@@ -142,9 +200,6 @@ export function PaymentByClass({ onPaymentSuccess }: PaymentByClassProps) {
       
       const data = await response.json();
       const students = data.enrollments || [];
-      
-      // Debug log to verify response
-      console.log('Enrolled students data:', data);
       
       setEnrolledStudents(students);
       
@@ -231,6 +286,7 @@ export function PaymentByClass({ onPaymentSuccess }: PaymentByClassProps) {
   };
 
   const handleClassSelect = (classObj: Class) => {
+    triggerVibration();
     setSelectedClass(selectedClass?._id === classObj._id ? null : classObj);
   };
   
@@ -238,6 +294,7 @@ export function PaymentByClass({ onPaymentSuccess }: PaymentByClassProps) {
     const paymentIdentifier = `${student.student.sid}-${classObj.classId}`;
     try {
       setProcessingPayment(paymentIdentifier);
+      triggerVibration();
       setError(null);
       
       const currentDate = new Date();
@@ -324,22 +381,49 @@ export function PaymentByClass({ onPaymentSuccess }: PaymentByClassProps) {
     cls.subject.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
+  // Responsive class card for mobile view
+  const ClassCard = ({ classObj }: { classObj: Class }) => (
+    <div 
+      className={`border rounded-lg p-4 mb-3 ${selectedClass?._id === classObj._id ? 'bg-blue-50 border-blue-300' : 'bg-white border-gray-200'}`}
+      onClick={() => handleClassSelect(classObj)}
+    >
+      <div className="flex justify-between items-start">
+        <div>
+          <h3 className="font-medium text-gray-900">{classObj.name}</h3>
+          <p className="text-sm text-gray-500">{classObj.subject}</p>
+        </div>
+        <span className="text-sm font-semibold bg-blue-100 text-blue-800 px-2 py-1 rounded-md">
+          £{classObj.monthlyFee}
+        </span>
+      </div>
+      <div className="mt-2 text-xs text-gray-500 flex justify-between">
+        <span>{classObj.schedule?.days?.join(', ')} at {classObj.schedule?.time}</span>
+        <span className="text-blue-600">ID: {classObj.classId}</span>
+      </div>
+    </div>
+  );
+
   return (
-    <div>
+    <div className="pb-6" {...swipeHandlers}>
+      {/* Pull-to-refresh indicator */}
+      {isRefreshing && (
+        <div className="flex justify-center items-center pb-4">
+          <div className="h-6 w-6 border-2 border-blue-600 rounded-full border-t-transparent animate-spin"></div>
+        </div>
+      )}
+
       <div className="mb-6">
         <label className="block text-sm font-medium text-gray-700 mb-1">
           Search for a Class
         </label>
         <div className="relative">
           <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-            <svg className="h-5 w-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-            </svg>
+            <MagnifyingGlassIcon className="h-5 w-5 text-gray-400" />
           </div>
           <input
             type="text"
             placeholder="Enter class name, ID or subject"
-            className="pl-10 pr-4 py-2 border rounded-md focus:ring-blue-500 focus:border-blue-500 block w-full"
+            className="pl-10 pr-4 py-3 border rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full shadow-sm"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             disabled={loading}
@@ -354,14 +438,23 @@ export function PaymentByClass({ onPaymentSuccess }: PaymentByClassProps) {
       )}
 
       {loading ? (
-        <div className="text-center py-4">
-          <div className="inline-block animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-500"></div>
-          <p className="mt-2 text-gray-500">Loading classes...</p>
+        <div className="text-center py-8">
+          <div className="inline-block animate-spin rounded-full h-10 w-10 border-t-2 border-b-2 border-blue-500"></div>
+          <p className="mt-3 text-gray-500">Loading classes...</p>
         </div>
       ) : filteredClasses.length > 0 ? (
-        <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 mb-6">
+        <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 mb-6" ref={classListRef}>
           <h3 className="text-lg font-medium text-gray-800 mb-4">Select a Class</h3>
-          <div className="max-h-64 overflow-y-auto">
+          
+          {/* Mobile view - cards */}
+          <div className="md:hidden">
+            {filteredClasses.map(classObj => (
+              <ClassCard key={classObj._id} classObj={classObj} />
+            ))}
+          </div>
+          
+          {/* Desktop view - table */}
+          <div className="hidden md:block max-h-64 overflow-y-auto">
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
                 <tr>
@@ -390,6 +483,7 @@ export function PaymentByClass({ onPaymentSuccess }: PaymentByClassProps) {
                   <tr 
                     key={classObj._id} 
                     className={`hover:bg-gray-50 ${selectedClass?._id === classObj._id ? 'bg-blue-50' : ''}`}
+                    onClick={() => handleClassSelect(classObj)}
                   >
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                       {classObj.classId}
@@ -404,11 +498,14 @@ export function PaymentByClass({ onPaymentSuccess }: PaymentByClassProps) {
                       {classObj.schedule?.days?.join(', ')} {classObj.schedule?.time}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      ${classObj.monthlyFee}
+                      £{classObj.monthlyFee}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                       <button
-                        onClick={() => handleClassSelect(classObj)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleClassSelect(classObj);
+                        }}
                         className={`text-blue-600 hover:text-blue-900 ${selectedClass?._id === classObj._id ? 'font-bold' : ''}`}
                       >
                         {selectedClass?._id === classObj._id ? 'Hide Students' : 'Show Students'}
@@ -427,13 +524,13 @@ export function PaymentByClass({ onPaymentSuccess }: PaymentByClassProps) {
       ) : null}
 
       {selectedClass && (
-        <div className="bg-white rounded-md shadow mb-6">
-          <div className="border-b border-gray-200 px-6 py-4">
+        <div className="bg-white rounded-md shadow mb-6" ref={studentListRef}>
+          <div className="border-b border-gray-200 px-4 py-4">
             <h3 className="text-lg font-medium text-gray-800">
               Students Enrolled in {selectedClass.name}
             </h3>
             <p className="text-sm text-gray-500 mt-1">
-              Monthly Fee: ${selectedClass.monthlyFee} | Class ID: {selectedClass.classId}
+              Monthly Fee: £{selectedClass.monthlyFee} | Class ID: {selectedClass.classId}
             </p>
           </div>
           
@@ -443,8 +540,72 @@ export function PaymentByClass({ onPaymentSuccess }: PaymentByClassProps) {
               <p className="mt-2 text-sm text-gray-500">Loading students...</p>
             </div>
           ) : enrolledStudents.length > 0 ? (
-            <div className="p-6">
-              <div className="overflow-x-auto">
+            <div className="p-3 md:p-6">
+              {/* Mobile view - cards */}
+              <div className="md:hidden space-y-3">
+                {enrolledStudents.map((student) => {
+                  const studentPaymentStatus = paymentStatus[student.student.sid];
+                  const isPaid = studentPaymentStatus?.paid;
+                  const studentDetail = studentDetails[student.student.sid];
+                  
+                  return (
+                    <div 
+                      key={student._id} 
+                      className={`border rounded-lg p-4 ${isPaid ? 'bg-green-50 border-green-200' : 'bg-white border-gray-200'}`}
+                    >
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <h3 className="font-medium text-gray-900">{student.student.name}</h3>
+                          <p className="text-sm text-gray-500">ID: {student.student.sid}</p>
+                          <p className="text-xs text-gray-500 mt-1">
+                            Method: {studentDetail?.paymentMethod || 'Cash/Invoice'}
+                          </p>
+                        </div>
+                        <div>
+                          {isPaid ? (
+                            <span className="inline-flex items-center px-2.5 py-1 rounded-md text-sm font-medium bg-green-100 text-green-800">
+                              <CheckCircleIcon className="mr-1 h-4 w-4" /> Paid
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center px-2.5 py-1 rounded-md text-sm font-medium bg-yellow-100 text-yellow-800">
+                              <ClockIcon className="mr-1 h-4 w-4" /> Unpaid
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      
+                      <div className="mt-3">
+                        {!isPaid ? (
+                          <button
+                            onClick={() => handleMarkAsPaid(student, selectedClass)}
+                            disabled={processingPayment === `${student.student.sid}-${selectedClass.classId}`}
+                            className="w-full flex justify-center items-center py-2 px-3 bg-green-600 text-white rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 disabled:opacity-50 text-sm font-medium"
+                          >
+                            {processingPayment === `${student.student.sid}-${selectedClass.classId}` ? (
+                              <>
+                                <div className="h-4 w-4 border-2 border-white rounded-full border-t-transparent animate-spin mr-2"></div>
+                                Processing...
+                              </>
+                            ) : (
+                              <>
+                                <CheckCircleIcon className="h-4 w-4 mr-2" />
+                                Mark as Paid
+                              </>
+                            )}
+                          </button>
+                        ) : (
+                          <div className="text-center text-sm text-green-600 mt-1">
+                            Paid on {new Date(studentPaymentStatus.paidDate!).toLocaleDateString()}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              
+              {/* Desktop view - table */}
+              <div className="hidden md:block overflow-x-auto">
                 <table className="min-w-full divide-y divide-gray-200">
                   <thead className="bg-gray-50">
                     <tr>
@@ -501,7 +662,7 @@ export function PaymentByClass({ onPaymentSuccess }: PaymentByClassProps) {
                                 className="inline-flex items-center px-3 py-1.5 bg-green-600 text-white rounded hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 disabled:opacity-50"
                               >
                                 {processingPayment === `${student.student.sid}-${selectedClass.classId}` ? (
-                                  <span className="inline-block animate-spin mr-1">⏳</span>
+                                  <div className="h-4 w-4 border-2 border-white rounded-full border-t-transparent animate-spin mr-2"></div>
                                 ) : (
                                   <CheckCircleIcon className="h-4 w-4 mr-1" />
                                 )}
@@ -528,6 +689,17 @@ export function PaymentByClass({ onPaymentSuccess }: PaymentByClassProps) {
           )}
         </div>
       )}
+      
+      {/* Floating action button for mobile */}
+      <button 
+        onClick={handleRefresh}
+        className="md:hidden fixed right-4 bottom-20 bg-indigo-600 text-white w-12 h-12 rounded-full shadow-lg flex items-center justify-center active:bg-indigo-700"
+        aria-label="Refresh"
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+        </svg>
+      </button>
     </div>
   );
 }
