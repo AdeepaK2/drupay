@@ -6,7 +6,7 @@ import Class, { IClass } from '@/utils/models/classSchema';
 connect();
 
 // Generate a unique class ID based on grade and sequential number
-export async function generateClassId(grade: number): Promise<string> {
+async function generateClassId(grade: number): Promise<string> {
   // Format grade to 2 digits (e.g., 6 -> "06")
   const formattedGrade = grade.toString().padStart(2, '0');
   
