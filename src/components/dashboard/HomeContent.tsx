@@ -1,36 +1,411 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
+import { Pie } from 'react-chartjs-2';
+import { Chart as ChartJS, ArcElement, Tooltip, Legend } from 'chart.js';
+import { format, addMonths, subMonths } from 'date-fns';
+
+ChartJS.register(ArcElement, Tooltip, Legend);
 
 interface HomeContentProps {
   user: any; // Replace with proper user type from your auth context
 }
 
+interface PaymentSummary {
+  totalReceived: number;
+  totalPending: number;
+  byCash: number;
+  byInvoice: number;
+}
+
 export default function HomeContent({ user }: HomeContentProps) {
-  return (
-    <div className="bg-white shadow-md rounded p-6">
-      <h2 className="text-xl font-semibold mb-4">Dashboard Overview</h2>
-      <p className="text-gray-700 mb-4">
-        Welcome to your dashboard! You can manage your classes, students, centers, and more from the navigation menu.
-      </p>
+  const [currentMonth, setCurrentMonth] = useState(new Date());
+  const [paymentSummary, setPaymentSummary] = useState<PaymentSummary>({
+    totalReceived: 0,
+    totalPending: 0,
+    byCash: 0,
+    byInvoice: 0,
+  });
+  const [isLoading, setIsLoading] = useState(true);
+  const [duePayments, setDuePayments] = useState<any[]>([]);
+  const [activeTab, setActiveTab] = useState<'overview' | 'payments'>('overview');
+
+  const formatMonth = (date: Date) => {
+    return format(date, 'MMMM yyyy');
+  };
+
+  const handlePreviousMonth = () => {
+    setCurrentMonth(prevMonth => subMonths(prevMonth, 1));
+  };
+
+  const handleNextMonth = () => {
+    setCurrentMonth(prevMonth => addMonths(prevMonth, 1));
+  };
+
+  const fetchPaymentData = async () => {
+    setIsLoading(true);
+    try {
+      const year = currentMonth.getFullYear();
+      const month = currentMonth.getMonth() + 1; // JavaScript months are 0-indexed
       
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mt-6">
-        <div className="bg-blue-50 p-4 rounded-lg border border-blue-100">
-          <h3 className="font-medium text-blue-700 mb-2">Classes</h3>
-          <p className="text-gray-600">Manage your teaching schedule and class details</p>
+      // Fetch payment summary
+      const summaryResponse = await fetch(`/api/payment?year=${year}&month=${month}&summary=true`);
+      if (summaryResponse.ok) {
+        const data = await summaryResponse.json();
+        setPaymentSummary({
+          totalReceived: data.totalReceived || 0,
+          totalPending: data.totalPending || 0,
+          byCash: data.byCash || 0,
+          byInvoice: data.byInvoice || 0,
+        });
+        
+        // Use both existing pending payments and missing payments
+        const pendingResponse = await fetch(`/api/payment?year=${year}&month=${month}&status=PENDING`);
+        if (pendingResponse.ok) {
+          const pendingData = await pendingResponse.json();
+          const allDue = [
+            ...(pendingData.payments || []),
+            ...(data.missingPayments || [])
+          ];
+          setDuePayments(allDue);
+        } else {
+          setDuePayments(data.missingPayments || []);
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching payment data:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchPaymentData();
+  }, [currentMonth]);
+
+  const paymentMethodChartData = {
+    labels: ['Cash', 'Invoice'],
+    datasets: [
+      {
+        data: [paymentSummary.byCash, paymentSummary.byInvoice],
+        backgroundColor: ['#4ade80', '#60a5fa'],
+        borderColor: ['#16a34a', '#2563eb'],
+        borderWidth: 1,
+      },
+    ],
+  };
+
+  const paymentStatusChartData = {
+    labels: ['Received', 'Pending'],
+    datasets: [
+      {
+        data: [paymentSummary.totalReceived, paymentSummary.totalPending],
+        backgroundColor: ['#4ade80', '#fbbf24'],
+        borderColor: ['#16a34a', '#d97706'],
+        borderWidth: 1,
+      },
+    ],
+  };
+
+  return (
+    <div className="space-y-4 pb-16 md:pb-0"> {/* Added padding bottom for mobile to account for tabs */}
+      {/* Hero card with quick stats */}
+      <div className="bg-gradient-to-br from-indigo-600 to-blue-500 rounded-xl p-5 text-white shadow-lg">
+        <h2 className="text-xl font-bold mb-2">Welcome back</h2>
+        <p className="text-indigo-100 mb-4 text-sm">
+          Here's your financial summary for {formatMonth(currentMonth)}
+        </p>
+        
+        <div className="flex justify-between items-center mb-2">
+          <h3 className="text-sm font-medium">Total Revenue</h3>
+          <div className="flex space-x-2">
+            <button 
+              onClick={handlePreviousMonth}
+              className="p-1.5 rounded-full bg-white/20 hover:bg-white/30 transition"
+              aria-label="Previous month"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+              </svg>
+            </button>
+            <button 
+              onClick={handleNextMonth}
+              className="p-1.5 rounded-full bg-white/20 hover:bg-white/30 transition"
+              aria-label="Next month"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+              </svg>
+            </button>
+          </div>
         </div>
-        <div className="bg-green-50 p-4 rounded-lg border border-green-100">
-          <h3 className="font-medium text-green-700 mb-2">Students</h3>
-          <p className="text-gray-600">View and manage your student information</p>
+
+        <div className="text-3xl font-bold mb-5">
+          £{(paymentSummary.totalReceived + paymentSummary.totalPending).toFixed(2)}
         </div>
-        <div className="bg-purple-50 p-4 rounded-lg border border-purple-100">
-          <h3 className="font-medium text-purple-700 mb-2">Messages</h3>
-          <p className="text-gray-600">Communicate with students and staff</p>
+        
+        <div className="grid grid-cols-2 gap-4 text-center">
+          <div className="bg-white/10 p-3 rounded-lg backdrop-blur-sm">
+            <span className="block text-xs text-indigo-100">Received</span>
+            <span className="font-bold text-lg">£{paymentSummary.totalReceived.toFixed(2)}</span>
+          </div>
+          <div className="bg-white/10 p-3 rounded-lg backdrop-blur-sm">
+            <span className="block text-xs text-indigo-100">Pending</span>
+            <span className="font-bold text-lg">£{paymentSummary.totalPending.toFixed(2)}</span>
+          </div>
         </div>
       </div>
-      
-      <div className="mt-6 p-3 bg-gray-50 rounded-md">
-        <h3 className="font-medium mb-2">Your Account Details</h3>
-        <p><span className="font-medium">Email:</span> {user?.email}</p>
-        <p><span className="font-medium">User ID:</span> {user?._id}</p>
+
+      {/* Tab Navigation - Mobile Friendly */}
+      <div className="bg-white rounded-xl overflow-hidden shadow-md mb-4">
+        <div className="flex border-b">
+          <button 
+            onClick={() => setActiveTab('overview')} 
+            className={`flex-1 py-3 text-center ${activeTab === 'overview' ? 'border-b-2 border-indigo-600 text-indigo-600 font-medium' : 'text-gray-600'}`}
+          >
+            Overview
+          </button>
+          <button 
+            onClick={() => setActiveTab('payments')} 
+            className={`flex-1 py-3 text-center ${activeTab === 'payments' ? 'border-b-2 border-indigo-600 text-indigo-600 font-medium' : 'text-gray-600'}`}
+          >
+            Payments
+            {duePayments.length > 0 && (
+              <span className="ml-1.5 bg-red-100 text-red-800 text-xs px-1.5 py-0.5 rounded-full">
+                {duePayments.length}
+              </span>
+            )}
+          </button>
+        </div>
+      </div>
+
+      {isLoading ? (
+        <div className="flex justify-center items-center h-48">
+          <div className="animate-spin w-12 h-12 border-4 border-indigo-600 rounded-full border-t-transparent"></div>
+        </div>
+      ) : (
+        <>
+          {activeTab === 'overview' ? (
+            <>
+              {/* Payment Method Card */}
+              <div className="bg-white rounded-xl p-5 shadow-md">
+                <h3 className="text-lg font-medium mb-4">Payment Methods</h3>
+                <div className="flex flex-col md:flex-row items-stretch md:items-center">
+                  <div className="w-full md:w-1/2 h-52 flex justify-center items-center">
+                    <div className="w-full max-w-[200px]">
+                      <Pie 
+                        data={paymentMethodChartData} 
+                        options={{ 
+                          maintainAspectRatio: true,
+                          plugins: {
+                            legend: {
+                              position: 'bottom',
+                              labels: {
+                                usePointStyle: true,
+                                padding: 15,
+                                font: {
+                                  size: 12
+                                }
+                              }
+                            }
+                          }
+                        }} 
+                      />
+                    </div>
+                  </div>
+                  <div className="w-full md:w-1/2 mt-4 md:mt-0 flex flex-col justify-center">
+                    <div className="grid grid-cols-1 gap-4">
+                      <div className="bg-green-50 p-4 rounded-lg border-l-4 border-green-400">
+                        <p className="text-sm text-green-800 font-medium">Cash</p>
+                        <p className="text-2xl font-bold text-gray-800">£{paymentSummary.byCash.toFixed(2)}</p>
+                      </div>
+                      <div className="bg-blue-50 p-4 rounded-lg border-l-4 border-blue-400">
+                        <p className="text-sm text-blue-800 font-medium">Invoice</p>
+                        <p className="text-2xl font-bold text-gray-800">£{paymentSummary.byInvoice.toFixed(2)}</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Quick Actions Card */}
+              <div className="bg-white rounded-xl p-5 shadow-md">
+                <h3 className="text-lg font-medium mb-4">Quick Actions</h3>
+                <div className="grid grid-cols-2 gap-3">
+                  <button className="bg-indigo-50 hover:bg-indigo-100 text-indigo-700 p-3 rounded-xl flex flex-col items-center justify-center transition">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 mb-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" />
+                    </svg>
+                    <span className="text-sm">Add Payment</span>
+                  </button>
+                  <button className="bg-blue-50 hover:bg-blue-100 text-blue-700 p-3 rounded-xl flex flex-col items-center justify-center transition">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 mb-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
+                    </svg>
+                    <span className="text-sm">Add Student</span>
+                  </button>
+                  <button className="bg-purple-50 hover:bg-purple-100 text-purple-700 p-3 rounded-xl flex flex-col items-center justify-center transition">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 mb-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                    </svg>
+                    <span className="text-sm">Attendance</span>
+                  </button>
+                  <button className="bg-amber-50 hover:bg-amber-100 text-amber-700 p-3 rounded-xl flex flex-col items-center justify-center transition">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 mb-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
+                    </svg>
+                    <span className="text-sm">Reports</span>
+                  </button>
+                </div>
+              </div>
+            </>
+          ) : (
+            <>
+              {/* Due Payments Card */}
+              <div className="bg-white rounded-xl p-5 shadow-md overflow-hidden">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-medium">Due Payments</h3>
+                  <span className="px-2 py-1 bg-amber-100 text-amber-800 text-xs rounded-full font-medium">
+                    {duePayments.length} pending
+                  </span>
+                </div>
+                
+                {duePayments.length > 0 ? (
+                  <div className="space-y-3 overflow-y-auto max-h-[500px] -mx-5 px-5 pb-2">
+                    {duePayments.map((payment: any, index) => (
+                      <div 
+                        key={payment._id || `missing-${index}`} 
+                        className="bg-gray-50 rounded-lg p-3 border border-gray-200 shadow-sm"
+                      >
+                        <div className="flex justify-between items-center">
+                          <div>
+                            <h4 className="font-medium text-sm">{payment.student?.name}</h4>
+                            <p className="text-xs text-gray-500">{payment.class?.name}</p>
+                          </div>
+                          <span className="font-bold text-lg">£{payment.amount.toFixed(2)}</span>
+                        </div>
+                        <div className="flex justify-between items-center mt-2">
+                          <span className="text-xs text-gray-500">
+                            Due: {payment.dueDate ? format(new Date(payment.dueDate), 'dd MMM yyyy') : 'Not set'}
+                          </span>
+                          {payment._id ? (
+                            <span className="px-2 py-0.5 text-xs rounded-full bg-yellow-100 text-yellow-800 font-medium">
+                              Payment Due
+                            </span>
+                          ) : (
+                            <span className="px-2 py-0.5 text-xs rounded-full bg-red-100 text-red-800 font-medium">
+                              No Record
+                            </span>
+                          )}
+                        </div>
+                        <button className="w-full mt-2 py-1.5 bg-indigo-100 hover:bg-indigo-200 text-indigo-700 rounded-lg text-sm font-medium transition">
+                          Record Payment
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="py-10 text-center bg-gray-50 rounded-lg">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12 mx-auto text-gray-400 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <p className="text-gray-600 font-medium">No pending payments for this month</p>
+                    <p className="text-gray-500 text-sm mt-1">All payments are up to date</p>
+                  </div>
+                )}
+              </div>
+
+              {/* Payment Status Summary */}
+              <div className="bg-white rounded-xl p-5 shadow-md">
+                <h3 className="text-lg font-medium mb-4">Payment Status</h3>
+                <div className="flex flex-col md:flex-row items-center">
+                  <div className="w-full md:w-1/2 h-48 flex justify-center items-center">
+                    <div className="w-full max-w-[200px]">
+                      <Pie 
+                        data={paymentStatusChartData}
+                        options={{ 
+                          maintainAspectRatio: true,
+                          plugins: {
+                            legend: {
+                              position: 'bottom',
+                              labels: {
+                                usePointStyle: true,
+                                padding: 15,
+                                font: {
+                                  size: 12
+                                }
+                              }
+                            }
+                          }
+                        }}
+                      />
+                    </div>
+                  </div>
+                  <div className="w-full md:w-1/2 mt-4 md:mt-0">
+                    <div className="space-y-3">
+                      <div className="bg-green-50 p-3 rounded-lg">
+                        <div className="flex justify-between">
+                          <div>
+                            <span className="inline-block w-3 h-3 rounded-full bg-green-500 mr-2"></span>
+                            <span className="text-sm font-medium">Received</span>
+                          </div>
+                          <span className="font-bold">{paymentSummary.totalReceived > 0 ? Math.round((paymentSummary.totalReceived / (paymentSummary.totalReceived + paymentSummary.totalPending)) * 100) : 0}%</span>
+                        </div>
+                      </div>
+                      <div className="bg-amber-50 p-3 rounded-lg">
+                        <div className="flex justify-between">
+                          <div>
+                            <span className="inline-block w-3 h-3 rounded-full bg-amber-500 mr-2"></span>
+                            <span className="text-sm font-medium">Pending</span>
+                          </div>
+                          <span className="font-bold">{paymentSummary.totalPending > 0 ? Math.round((paymentSummary.totalPending / (paymentSummary.totalReceived + paymentSummary.totalPending)) * 100) : 0}%</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
+        </>
+      )}
+
+      {/* Mobile bottom navigation - fixed at bottom */}
+      <div className="fixed inset-x-0 bottom-0 bg-white border-t border-gray-200 z-10 md:hidden">
+        <div className="grid grid-cols-5 gap-1">
+          <button className="flex flex-col items-center justify-center py-2 text-indigo-600">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
+            </svg>
+            <span className="text-xs mt-1">Home</span>
+          </button>
+          <button className="flex flex-col items-center justify-center py-2 text-gray-600">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" />
+            </svg>
+            <span className="text-xs mt-1">Payments</span>
+          </button>
+          <button className="flex flex-col items-center justify-center py-2 text-gray-600 relative">
+            <div className="absolute -top-1 -right-1 bg-red-500 text-white text-xs w-5 h-5 flex items-center justify-center rounded-full">
+              {duePayments.length > 9 ? '9+' : duePayments.length}
+            </div>
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+            </svg>
+            <span className="text-xs mt-1">Classes</span>
+          </button>
+          <button className="flex flex-col items-center justify-center py-2 text-gray-600">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+            </svg>
+            <span className="text-xs mt-1">Students</span>
+          </button>
+          <button className="flex flex-col items-center justify-center py-2 text-gray-600">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+            </svg>
+            <span className="text-xs mt-1">Settings</span>
+          </button>
+        </div>
       </div>
     </div>
   );
