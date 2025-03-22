@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import StudentDetailModal from '../students/StudentDetailModal';
 import StudentEditModal from '../students/StudentEditModal';
+import AddStudentModal from '../students/AddStudentModal'; // Import AddStudentModal
+import EnrollmentModal from '../students/EnrollmentModal'; // Import EnrollmentModal
 import { Student } from '@/types/student';
 
 export default function StudentsContent() {
@@ -11,11 +13,12 @@ export default function StudentsContent() {
   const [sortOption, setSortOption] = useState('name');
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
-  
+
   // Modal states
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [isAddStudentModalOpen, setIsAddStudentModalOpen] = useState(false); // Add state for AddStudentModal
   const [isEnrollmentModalOpen, setIsEnrollmentModalOpen] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
 
@@ -71,6 +74,14 @@ export default function StudentsContent() {
     setIsEnrollmentModalOpen(true);
   };
 
+  const openAddStudentModal = () => {
+    setIsAddStudentModalOpen(true); // Open AddStudentModal
+  };
+
+  const closeAddStudentModal = () => {
+    setIsAddStudentModalOpen(false); // Close AddStudentModal
+  };
+
   const handleStudentUpdate = (updatedStudent: Student) => {
     // Update the student in the local state
     setStudents(prevStudents => 
@@ -79,6 +90,22 @@ export default function StudentsContent() {
       )
     );
     setSelectedStudent(updatedStudent);
+  };
+
+  const handleAddStudentSuccess = (newStudent: Student) => {
+    setStudents((prevStudents) => [newStudent, ...prevStudents]); // Add new student to the list
+    setSuccessMessage('Student added successfully');
+    closeAddStudentModal();
+  };
+
+  const handleEnrollmentSuccess = (updatedStudent: Student) => {
+    setStudents((prevStudents) =>
+      prevStudents.map((student) =>
+        student._id === updatedStudent._id ? updatedStudent : student
+      )
+    );
+    setSuccessMessage(`${updatedStudent.name} has been successfully enrolled in the class.`);
+    setIsEnrollmentModalOpen(false);
   };
 
   const handleEnrollmentComplete = () => {
@@ -146,7 +173,10 @@ export default function StudentsContent() {
               <option value="sid">ID</option>
             </select>
           </div>
-          <button className="bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded-md">
+          <button
+            className="bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded-md"
+            onClick={openAddStudentModal} // Attach the open modal function
+          >
             Add New Student
           </button>
         </div>
@@ -273,6 +303,21 @@ export default function StudentsContent() {
         isOpen={isEditModalOpen}
         onClose={() => setIsEditModalOpen(false)}
         onSave={handleStudentUpdate}
+      />
+
+      {/* AddStudentModal */}
+      <AddStudentModal
+        isOpen={isAddStudentModalOpen}
+        onClose={closeAddStudentModal}
+        onSuccess={handleAddStudentSuccess}
+      />
+
+      {/* EnrollmentModal */}
+      <EnrollmentModal
+        isOpen={isEnrollmentModalOpen}
+        onClose={() => setIsEnrollmentModalOpen(false)}
+        student={selectedStudent}
+        onEnrollSuccess={handleEnrollmentSuccess}
       />
       
     </div>

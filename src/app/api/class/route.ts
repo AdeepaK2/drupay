@@ -6,7 +6,7 @@ import Class, { IClass } from '@/utils/models/classSchema';
 connect();
 
 // Generate a unique class ID based on grade and sequential number
-export async function generateClassId(grade: number): Promise<string> {
+async function generateClassId(grade: number): Promise<string> {
   // Format grade to 2 digits (e.g., 6 -> "06")
   const formattedGrade = grade.toString().padStart(2, '0');
   
@@ -76,6 +76,17 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ message: 'Missing required fields' }, { status: 400 });
     }
     
+    // Validate the schedule field
+    if (
+      !body.schedule ||
+      !Array.isArray(body.schedule.days) ||
+      !body.schedule.days.length ||
+      typeof body.schedule.startTime !== 'string' ||
+      typeof body.schedule.endTime !== 'string'
+    ) {
+      return NextResponse.json({ message: 'Invalid schedule format' }, { status: 400 });
+    }
+    
     // Generate a unique class ID
     const classId = await generateClassId(body.grade);
     
@@ -98,27 +109,39 @@ export async function POST(request: NextRequest) {
 export async function PATCH(request: NextRequest) {
   try {
     const body = await request.json();
-    
+
     // Ensure classId is provided for the update
     if (!body.classId) {
       return NextResponse.json({ message: 'Class ID is required' }, { status: 400 });
     }
-    
+
     const { classId, ...updateData } = body;
-    
+
+    // Validate the schedule field
+    if (
+      updateData.schedule &&
+      (!Array.isArray(updateData.schedule.days) ||
+      !updateData.schedule.days.length ||
+      typeof updateData.schedule.startTime !== 'string' ||
+      typeof updateData.schedule.endTime !== 'string')
+    ) {
+      return NextResponse.json({ message: 'Invalid schedule format' }, { status: 400 });
+    }
+
     // Find and update the class
     const updatedClass = await Class.findOneAndUpdate(
       { classId },
       { $set: updateData },
       { new: true, runValidators: true }
     );
-    
+
     if (!updatedClass) {
       return NextResponse.json({ message: 'Class not found' }, { status: 404 });
     }
-    
+
     return NextResponse.json(updatedClass);
   } catch (error: any) {
+    console.error('Error in PATCH /api/class:', error);
     if (error.name === 'ValidationError') {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }

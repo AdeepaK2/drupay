@@ -2,12 +2,16 @@ import mongoose, { Document, Schema } from 'mongoose';
 
 // Interface for a class document
 export interface IClass extends Document {
-    classId: string;
+  classId: string;
   name: string;
-  centerId: number; // Changed from mongoose.Types.ObjectId to number
+  centerId: number;
   grade: number;
   subject: string;
-  schedule: string;
+  schedule: {
+    days: string[];
+    startTime: string;
+    endTime: string;
+  };
   monthlyFee: number;
   createdAt: Date;
   updatedAt: Date;
@@ -17,7 +21,7 @@ export interface IClass extends Document {
 const classSchema = new Schema<IClass>(
   {
     classId: {
-      type: String, // Changed from Schema.Types.ObjectId to Number
+      type: String,
       required: true,
       unique: true,
     },
@@ -27,7 +31,7 @@ const classSchema = new Schema<IClass>(
       trim: true,
     },
     centerId: {
-      type: Number, // Changed from Schema.Types.ObjectId to Number
+      type: Number,
       ref: 'Center', 
       required: true,
       validate: {
@@ -44,8 +48,18 @@ const classSchema = new Schema<IClass>(
       required: true,
     },
     schedule: {
-      type: String,
-      required: true,
+      days: {
+        type: [String],
+        required: true
+      },
+      startTime: {
+        type: String,
+        required: true
+      },
+      endTime: {
+        type: String,
+        required: true
+      }
     },
     monthlyFee: {
       type: Number,

@@ -184,7 +184,8 @@ export default function ClassesContent() {
 
     try {
       setLoading(true);
-      const response = await fetch('/api/class', {
+
+      const response = await fetch(`/api/class`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
@@ -198,11 +199,14 @@ export default function ClassesContent() {
       }
 
       const updatedClass = await response.json();
-      setClasses((prevClasses) => 
-        prevClasses.map((cls) => 
+
+      // Update the state with the updated class
+      setClasses((prevClasses) =>
+        prevClasses.map((cls) =>
           cls.classId === updatedClass.classId ? updatedClass : cls
         )
       );
+
       setSuccessMessage('Class updated successfully');
       setIsEditModalOpen(false);
     } catch (err: any) {
@@ -255,15 +259,28 @@ export default function ClassesContent() {
 
   const openEditModal = (cls: ClassData) => {
     setSelectedClass(cls);
+
+    // Ensure schedule data is valid or use default
+    const schedule = cls.schedule || {
+      days: [],
+      startTime: '09:00',
+      endTime: '10:00',
+    };
+
     setFormData({
       name: cls.name,
       centerId: cls.centerId,
       grade: cls.grade,
       subject: cls.subject,
-      schedule: cls.schedule,
+      schedule: {
+        days: Array.isArray(schedule.days) ? schedule.days : [],
+        startTime: schedule.startTime || '09:00',
+        endTime: schedule.endTime || '10:00',
+      },
       monthlyFee: cls.monthlyFee,
-      classId: cls.classId
+      classId: cls.classId,
     });
+
     setIsEditModalOpen(true);
   };
 
@@ -328,9 +345,30 @@ export default function ClassesContent() {
   };
 
   // Format schedule for display
-  const formatSchedule = (schedule: ClassSchedule) => {
-    const daysAbbrev = schedule.days.map(day => day.substring(0, 3)).join(', ');
-    return `${daysAbbrev} ${schedule.startTime} - ${schedule.endTime}`;
+  const formatSchedule = (schedule: ClassSchedule | undefined) => {
+    if (!schedule) {
+      return 'No schedule set';
+    }
+    
+    // Safely handle days array
+    const days = schedule.days || [];
+    if (!Array.isArray(days) || days.length === 0) {
+      return 'No days selected';
+    }
+    
+    // Safely process days
+    const daysAbbrev = days.map(day => {
+      return typeof day === 'string' ? day.substring(0, 3) : '';
+    }).filter(Boolean).join(', ');
+    
+    const startTime = schedule.startTime || '';
+    const endTime = schedule.endTime || '';
+    
+    if (!daysAbbrev) {
+      return 'No days selected';
+    }
+    
+    return `${daysAbbrev} ${startTime}${endTime ? ' - ' + endTime : ''}`;
   };
 
   // Get student count for a class
@@ -355,8 +393,6 @@ export default function ClassesContent() {
           return a.subject.localeCompare(b.subject);
         case 'fee':
           return a.monthlyFee - b.monthlyFee;
-        case 'students':
-          return (enrollmentCounts[a.classId] || 0) - (enrollmentCounts[b.classId] || 0);
         default:
           return 0;
       }
@@ -490,7 +526,7 @@ export default function ClassesContent() {
                 
                 <div className="mb-3">
                   <p className="text-gray-500 text-sm">Schedule</p>
-                  <p className="font-medium text-sm">{formatSchedule(cls.schedule)}</p>
+                  <p className="font-medium text-sm">{cls && cls.schedule !== undefined ? formatSchedule(cls.schedule) : 'No schedule'}</p>
                 </div>
               </div>
               
