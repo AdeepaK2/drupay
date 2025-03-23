@@ -17,12 +17,20 @@ export async function GET(request: NextRequest) {
   try {
     await connectDB();
     
-    // Extract query parameters for pagination
+    // Extract query parameters
     const searchParams = request.nextUrl.searchParams;
+    const sid = searchParams.get('sid');
     const page = parseInt(searchParams.get('page') || '1');
     const limit = parseInt(searchParams.get('limit') || '10');
     const skip = (page - 1) * limit;
     
+    // If sid is provided, search for specific student
+    if (sid) {
+      const student = await Student.find({ sid });
+      return NextResponse.json({ students: student }, { status: 200 });
+    }
+    
+    // Otherwise return paginated students
     const students = await Student.find({})
       .sort({ createdAt: -1 })
       .skip(skip)
