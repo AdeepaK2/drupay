@@ -109,6 +109,19 @@ export default function ClassesContent() {
     endTime: '',
     notes: ''
   });
+  
+  // Add this to track auto-scheduling status
+  const [autoSchedulingStatus, setAutoSchedulingStatus] = useState<{
+    attempted: boolean;
+    loading: boolean;
+    month: number;
+    year: number;
+  }>({
+    attempted: false,
+    loading: false,
+    month: new Date().getMonth() + 1,
+    year: new Date().getFullYear()
+  });
 
   // Add this to your component state
   const [suggestedDates, setSuggestedDates] = useState<Date[]>([]);
@@ -175,6 +188,25 @@ export default function ClassesContent() {
       setSuggestedDates(suggestions);
     }
   }, [selectedMonth, selectedYear, selectedClass]);
+  
+  // Add this new effect to auto-schedule classes when month/year changes or when classes are loaded
+  useEffect(() => {
+    // Only attempt auto-scheduling if:
+    // 1. We have classes loaded
+    // 2. We haven't attempted auto-scheduling for this month/year combination
+    // 3. We're not currently in any loading state
+    if (
+      classes.length > 0 && 
+      !loading && 
+      !loadingSchedules && 
+      !autoSchedulingStatus.loading && 
+      (autoSchedulingStatus.month !== selectedMonth || 
+       autoSchedulingStatus.year !== selectedYear || 
+       !autoSchedulingStatus.attempted)
+    ) {
+      autoScheduleAllClasses();
+    }
+  }, [classes, selectedMonth, selectedYear, loading]);
 
   // API Functions
   const fetchClasses = async () => {
@@ -361,6 +393,101 @@ export default function ClassesContent() {
     }
   };
   
+  // Add this new function to automatically schedule all classes
+  const autoScheduleAllClasses = async () => {
+    if (classes.length === 0 || autoSchedulingStatus.loading) {
+      return;
+    }
+    
+    setAutoSchedulingStatus(prev => ({ 
+      ...prev, 
+      loading: true,
+      month: selectedMonth,
+      year: selectedYear
+    }));
+    
+    try {
+      let schedulesCreated = 0;
+      
+      // Process each class one by one
+      for (const cls of classes) {
+        // Skip classes without proper schedule configuration
+        if (!cls.schedule || !cls.schedule.days || !Array.isArray(cls.schedule.days) || cls.schedule.days.length === 0) {
+          continue;
+        }
+        
+        // First fetch existing schedules for this class and month/year
+        const response = await fetch(
+          `/api/schedule?classId=${cls.classId}&month=${selectedMonth}&year=${selectedYear}`
+        );
+        
+        if (!response.ok) {
+          console.error(`Failed to fetch schedules for class ${cls.classId}`);
+          continue;
+        }
+        
+        const existingSchedules = await response.json();
+        const existingDates = existingSchedules.map((schedule: ScheduleData) => 
+          format(new Date(schedule.date), 'yyyy-MM-dd')
+        );
+        
+        // Generate suggested dates for this class
+        const suggestedDates = generateScheduleSuggestions(cls, selectedMonth, selectedYear);
+        const datesToSchedule = suggestedDates.filter(date => 
+          !existingDates.includes(format(date, 'yyyy-MM-dd')) &&
+          (!isPast(date) || isToday(date))
+        );
+        
+        // Skip if all dates are already scheduled
+        if (datesToSchedule.length === 0) {
+          continue;
+        }
+        
+        // Schedule each suggested date
+        for (const date of datesToSchedule) {
+          const formattedDate = format(date, 'yyyy-MM-dd');
+          
+          const scheduleResponse = await fetch('/api/schedule', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              classId: cls.classId,
+              date: formattedDate,
+              startTime: cls.schedule?.startTime,
+              endTime: cls.schedule?.endTime,
+              notes: `Auto-scheduled for regular ${format(date, 'EEEE')} class`
+            }),
+          });
+          
+          if (scheduleResponse.ok) {
+            schedulesCreated++;
+          }
+        }
+      }
+      
+      // Show success message if schedules were created
+      if (schedulesCreated > 0) {
+        setSuccessMessage(`Auto-scheduled ${schedulesCreated} class days for ${new Date(selectedYear, selectedMonth - 1).toLocaleString('default', { month: 'long' })} ${selectedYear}`);
+      }
+      
+      // Refresh schedules if a class is selected
+      if (selectedClass) {
+        fetchClassSchedules(selectedClass.classId);
+      }
+      
+    } catch (error) {
+      console.error('Error auto-scheduling classes:', error);
+    } finally {
+      setAutoSchedulingStatus(prev => ({ 
+        ...prev, 
+        loading: false,
+        attempted: true
+      }));
+    }
+  };
+
   // Function to open schedule modal with suggestions
   const openScheduleModal = (cls: ClassData) => {
     triggerVibration();
@@ -1275,7 +1402,14 @@ export default function ClassesContent() {
                 <div className="flex items-center space-x-2">
                   <select
                     value={selectedMonth}
-                    onChange={(e) => setSelectedMonth(parseInt(e.target.value))}
+                    onChange={(e) => {
+                      setSelectedMonth(parseInt(e.target.value));
+                      // Reset auto-scheduling attempted status when month changes
+                      setAutoSchedulingStatus(prev => ({
+                        ...prev,
+                        attempted: false
+                      }));
+                    }}
                     className="border rounded-md py-2 px-3 text-base appearance-none bg-white pr-8 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                     style={{ minWidth: '120px' }}
                   >
@@ -1288,7 +1422,14 @@ export default function ClassesContent() {
                   
                   <select
                     value={selectedYear}
-                    onChange={(e) => setSelectedYear(parseInt(e.target.value))}
+                    onChange={(e) => {
+                      setSelectedYear(parseInt(e.target.value));
+                      // Reset auto-scheduling attempted status when year changes
+                      setAutoSchedulingStatus(prev => ({
+                        ...prev,
+                        attempted: false
+                      }));
+                    }}
                     className="border rounded-md py-2 px-3 text-base appearance-none bg-white pr-8 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   >
                     {Array.from({ length: 5 }, (_, i) => {
@@ -1671,6 +1812,14 @@ export default function ClassesContent() {
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
         </svg>
       </button>
+
+      {/* Global auto-scheduling indicator */}
+      {autoSchedulingStatus.loading && (
+        <div className="fixed bottom-4 left-4 bg-blue-600 text-white px-4 py-2 rounded-lg shadow-lg z-40 flex items-center">
+          <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
+          <span>Auto-scheduling classes...</span>
+        </div>
+      )}
     </div>
   );
 }
