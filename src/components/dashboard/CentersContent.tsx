@@ -136,40 +136,16 @@ export default function CentersContent() {
   // Optimized method to fetch all class counts at once
   const fetchAllClassCounts = async () => {
     try {
-      const classResponse = await fetch("/api/class");
+      const classResponse = await fetch("/api/center/counts");
 
-      // Check if response is ok
       if (!classResponse.ok) {
-        throw new Error(
-          `API error: ${classResponse.status} ${classResponse.statusText}`
-        );
+        throw new Error(`API error: ${classResponse.status} ${classResponse.statusText}`);
       }
 
-      // Check content type
-      const contentType = classResponse.headers.get("content-type");
-      if (!contentType || !contentType.includes("application/json")) {
-        throw new Error("Invalid response format. Expected JSON.");
-      }
-
-      const allClasses = await classResponse.json();
-
-      if (Array.isArray(allClasses)) {
-        // Group classes by centerId
-        const counts: { [key: number]: number } = {};
-
-        allClasses.forEach((classObj) => {
-          if (counts[classObj.centerId]) {
-            counts[classObj.centerId]++;
-          } else {
-            counts[classObj.centerId] = 1;
-          }
-        });
-
-        setClassCounts(counts);
-      }
+      const counts = await classResponse.json();
+      setClassCounts(counts);
     } catch (err: any) {
       console.error("Error fetching class counts:", err);
-      // Don't set error state here since we still want to show centers even if class counts fail
     }
   };
 

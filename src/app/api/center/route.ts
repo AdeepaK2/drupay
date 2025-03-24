@@ -20,15 +20,16 @@ export async function GET(request: NextRequest) {
     const cid = searchParams.get('cid');
     
     if (cid) {
-      // Get specific center
-      const center = await Center.findOne({ cid: parseInt(cid) });
+      // Get specific center - use lean() for better performance on read operations
+      const center = await Center.findOne({ cid: parseInt(cid) }).lean();
       if (!center) {
         return NextResponse.json({ success: false, message: 'Center not found' }, { status: 404 });
       }
       return NextResponse.json({ success: true, data: center }, { status: 200 });
     } else {
-      // Get all centers
-      const centers = await Center.find({}).sort({ cid: 1 });
+      // Get all centers - use projection to only get needed fields and lean() for better performance
+      // Sort by cid for consistent ordering
+      const centers = await Center.find({}, 'cid name location admissionFee').sort({ cid: 1 }).lean();
       return NextResponse.json({ success: true, data: centers }, { status: 200 });
     }
   } catch (error) {
