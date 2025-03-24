@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
-import { CheckCircleIcon, ClockIcon, MagnifyingGlassIcon } from '@heroicons/react/24/solid';
+import { CheckCircleIcon, ClockIcon, MagnifyingGlassIcon, XMarkIcon, AdjustmentsHorizontalIcon } from '@heroicons/react/24/solid';
 import { useSwipeable } from 'react-swipeable';
 
 interface Class {
@@ -64,6 +64,13 @@ export function PaymentByClass({ onPaymentSuccess }: PaymentByClassProps) {
   const [processingPayment, setProcessingPayment] = useState<string | null>(null);
   const [paymentStatus, setPaymentStatus] = useState<{[key: string]: PaymentStatus}>({});
   const [isRefreshing, setIsRefreshing] = useState(false);
+  
+  // New filter state variables
+  const [gradeFilter, setGradeFilter] = useState<number | null>(null);
+  const [subjectFilter, setSubjectFilter] = useState<string | null>(null);
+  const [showFilters, setShowFilters] = useState<boolean>(false);
+  const [availableGrades, setAvailableGrades] = useState<number[]>([]);
+  const [availableSubjects, setAvailableSubjects] = useState<string[]>([]);
   
   // Refs for scroll handling
   const classListRef = useRef<HTMLDivElement>(null);
@@ -135,6 +142,19 @@ export function PaymentByClass({ onPaymentSuccess }: PaymentByClassProps) {
     }
   }, [selectedClass]);
 
+  // Extract unique grades and subjects when classes are loaded
+  useEffect(() => {
+    if (classes.length > 0) {
+      // Extract and sort unique grades
+      const grades = Array.from(new Set(classes.map(cls => cls.grade))).sort((a, b) => a - b);
+      setAvailableGrades(grades);
+      
+      // Extract and sort unique subjects
+      const subjects = Array.from(new Set(classes.map(cls => cls.subject))).sort();
+      setAvailableSubjects(subjects);
+    }
+  }, [classes]);
+
   const fetchClasses = async () => {
     try {
       setLoading(true);
@@ -153,6 +173,20 @@ export function PaymentByClass({ onPaymentSuccess }: PaymentByClassProps) {
     } finally {
       setLoading(false);
     }
+  };
+
+  // Reset all filters
+  const resetFilters = () => {
+    setSearchTerm('');
+    setGradeFilter(null);
+    setSubjectFilter(null);
+    triggerVibration();
+  };
+
+  // Toggle filters visibility (for mobile)
+  const toggleFilters = () => {
+    setShowFilters(!showFilters);
+    triggerVibration();
   };
 
   const sortClassesByTodaySchedule = (classes: Class[]) => {
@@ -375,11 +409,17 @@ export function PaymentByClass({ onPaymentSuccess }: PaymentByClassProps) {
     }
   };
 
-  const filteredClasses = classes.filter(cls => 
-    cls.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    cls.classId.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    cls.subject.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  // Apply all filters to classes
+  const filteredClasses = classes.filter(cls => {
+    const matchesSearch = cls.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      cls.classId.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      cls.subject.toLowerCase().includes(searchTerm.toLowerCase());
+      
+    const matchesGrade = gradeFilter === null || cls.grade === gradeFilter;
+    const matchesSubject = subjectFilter === null || cls.subject === subjectFilter;
+    
+    return matchesSearch && matchesGrade && matchesSubject;
+  });
 
   // Responsive class card for mobile view
   const ClassCard = ({ classObj }: { classObj: Class }) => (
@@ -412,6 +452,108 @@ export function PaymentByClass({ onPaymentSuccess }: PaymentByClassProps) {
         </div>
       )}
 
+      {/* Filter Toggle Button (Mobile) */}
+      <div className="md:hidden mb-4">
+        <button 
+          onClick={toggleFilters}
+          className="w-full flex items-center justify-center py-2 px-4 border border-gray-300 rounded-md shadow-sm bg-white text-sm font-medium text-gray-700 hover:bg-gray-50"
+        >
+          <AdjustmentsHorizontalIcon className="h-5 w-5 mr-2 text-gray-500" />
+          {showFilters ? "Hide Filters" : "Show Filters"}
+        </button>
+      </div>
+
+      {/* Filter Section */}
+      <div className={`mb-6 ${showFilters || window.innerWidth >= 768 ? 'block' : 'hidden'}`}>
+        <div className="bg-gray-50 p-4 rounded-lg border border-gray-200 mb-4">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-sm font-medium text-gray-700">Filter Classes</h3>
+            <button 
+              onClick={resetFilters}
+              className="text-sm text-blue-600 hover:text-blue-800"
+            >
+              Reset All
+            </button>
+          </div>
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Grade Filter */}
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">
+                Grade Level
+              </label>
+              <select
+                value={gradeFilter === null ? "" : gradeFilter}
+                onChange={(e) => {
+                  const value = e.target.value === "" ? null : parseInt(e.target.value);
+                  setGradeFilter(value);
+                  triggerVibration();
+                }}
+                className="block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md"
+              >
+                <option value="">All Grades</option>
+                {availableGrades.map(grade => (
+                  <option key={grade} value={grade}>Grade {grade}</option>
+                ))}
+              </select>
+            </div>
+            
+            {/* Subject Filter */}
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">
+                Subject
+              </label>
+              <select
+                value={subjectFilter || ""}
+                onChange={(e) => {
+                  const value = e.target.value === "" ? null : e.target.value;
+                  setSubjectFilter(value);
+                  triggerVibration();
+                }}
+                className="block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md"
+              >
+                <option value="">All Subjects</option>
+                {availableSubjects.map(subject => (
+                  <option key={subject} value={subject}>{subject}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+          
+          {/* Applied Filters Tags */}
+          <div className="mt-3 flex flex-wrap gap-2">
+            {gradeFilter !== null && (
+              <span className="inline-flex items-center rounded-md bg-gray-100 px-2 py-1 text-xs font-medium text-gray-600">
+                Grade {gradeFilter}
+                <button 
+                  type="button" 
+                  onClick={() => setGradeFilter(null)}
+                  className="ml-1 inline-flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-full text-gray-400 hover:bg-gray-200 hover:text-gray-500 focus:outline-none focus:bg-gray-500 focus:text-white"
+                >
+                  <span className="sr-only">Remove filter</span>
+                  <XMarkIcon className="h-3 w-3" />
+                </button>
+              </span>
+            )}
+            
+            {subjectFilter !== null && (
+              <span className="inline-flex items-center rounded-md bg-gray-100 px-2 py-1 text-xs font-medium text-gray-600">
+                {subjectFilter}
+                <button 
+                  type="button" 
+                  onClick={() => setSubjectFilter(null)}
+                  className="ml-1 inline-flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-full text-gray-400 hover:bg-gray-200 hover:text-gray-500 focus:outline-none focus:bg-gray-500 focus:text-white"
+                >
+                  <span className="sr-only">Remove filter</span>
+                  <XMarkIcon className="h-3 w-3" />
+                </button>
+              </span>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Search Input */}
       <div className="mb-6">
         <label className="block text-sm font-medium text-gray-700 mb-1">
           Search for a Class
@@ -428,9 +570,27 @@ export function PaymentByClass({ onPaymentSuccess }: PaymentByClassProps) {
             onChange={(e) => setSearchTerm(e.target.value)}
             disabled={loading}
           />
+          {searchTerm && (
+            <button 
+              onClick={() => setSearchTerm('')}
+              className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600"
+            >
+              <XMarkIcon className="h-5 w-5" />
+            </button>
+          )}
         </div>
       </div>
 
+      {/* Filter Results Summary */}
+      {(gradeFilter !== null || subjectFilter !== null) && (
+        <div className="mb-4 text-sm text-gray-600">
+          Showing {filteredClasses.length} {filteredClasses.length === 1 ? 'class' : 'classes'} 
+          {gradeFilter !== null && ` in Grade ${gradeFilter}`}
+          {subjectFilter !== null && ` for ${subjectFilter}`}
+        </div>
+      )}
+
+      {/* Error display */}
       {error && (
         <div className="mb-6 p-4 bg-red-50 border border-red-200 text-red-700 rounded-md">
           {error}
