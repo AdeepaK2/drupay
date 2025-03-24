@@ -2,7 +2,6 @@ import React from 'react';
 
 interface ClassCardProps {
   cls: {
-    _id: string;
     classId: string;
     name: string;
     centerId: number;
@@ -20,7 +19,7 @@ interface ClassCardProps {
   onEdit: (cls: ClassCardProps['cls']) => void;
   onSchedule: (cls: ClassCardProps['cls']) => void;
   onDelete: (cls: ClassCardProps['cls']) => void;
-  formatSchedule: (schedule?: { days: string[], startTime: string, endTime: string }) => string;
+  formatSchedule: (schedule?: { days: string[]; startTime: string; endTime: string }) => string;
   triggerVibration: () => void;
 }
 
@@ -32,29 +31,12 @@ const ClassCard: React.FC<ClassCardProps> = ({
   onSchedule,
   onDelete,
   formatSchedule,
-  triggerVibration
+  triggerVibration,
 }) => {
-  // Function to handle card press with ripple effect
-  const handleTouchStart = (event: React.TouchEvent<HTMLDivElement>) => {
-    const elem = event.currentTarget;
-    const rect = elem.getBoundingClientRect();
-    const x = event.touches[0].clientX - rect.left;
-    const y = event.touches[0].clientY - rect.top;
-    
-    // Create ripple effect
-    const ripple = document.createElement('span');
-    ripple.className = 'absolute rounded-full bg-black bg-opacity-10 animate-ripple';
-    ripple.style.left = `${x}px`;
-    ripple.style.top = `${y}px`;
-    
-    elem.appendChild(ripple);
-    setTimeout(() => ripple.remove(), 600);
-  };
-
   return (
-    <div 
-      className="bg-white border rounded-lg shadow-sm overflow-hidden h-64 sm:h-72 flex flex-col transition-all relative active:scale-[0.98] active:shadow-inner"
-      onTouchStart={handleTouchStart}
+    <div
+      className="bg-white border rounded-lg shadow-sm overflow-hidden flex flex-col transition-all relative active:scale-[0.98] active:shadow-inner"
+      style={{ minHeight: '250px' }} // Increased minimum height
     >
       {/* Class Header */}
       <div className="p-4 bg-gradient-to-r from-blue-500 to-blue-600 text-white">
@@ -70,9 +52,9 @@ const ClassCard: React.FC<ClassCardProps> = ({
           Grade {cls.grade} • {cls.subject}
         </p>
       </div>
-      
+
       {/* Class Details */}
-      <div className="p-4 flex-grow overflow-y-auto">
+      <div className="p-4 flex-grow overflow-y-auto" style={{ minHeight: '100px', maxHeight: '150px' }}>
         <div className="grid grid-cols-2 gap-2 text-sm mb-3">
           <div>
             <p className="text-gray-500">Monthly Fee</p>
@@ -88,29 +70,26 @@ const ClassCard: React.FC<ClassCardProps> = ({
             </div>
           </div>
         </div>
-        
-        <div className="mb-3">
+
+        <div>
           <p className="text-gray-500 text-sm">Schedule</p>
           <p className="font-medium text-sm">
             {cls && cls.schedule !== undefined ? formatSchedule(cls.schedule) : 'No schedule'}
           </p>
         </div>
       </div>
-      
-      {/* Actions - Improved touch targets and visibility on mobile */}
-      <div className="border-t bg-gray-50 mt-auto sticky bottom-0 w-full">
-        <div className="flex flex-wrap text-xs sm:text-sm">
+
+      {/* Actions - Fixed for Mobile */}
+      <div className="border-t bg-gray-50 w-full">
+        {/* Text-only button layout */}
+        <div className="flex justify-between p-1" style={{ minHeight: '44px' }}>
           <button
             onClick={() => {
               triggerVibration();
               onEdit(cls);
             }}
-            className="flex-1 py-2.5 sm:py-3 flex items-center justify-center text-blue-600 hover:bg-blue-50 active:bg-blue-100 transition-all touch-manipulation"
-            style={{ minHeight: '44px' }}
+            className="font-medium text-blue-600 hover:bg-blue-50 active:bg-blue-100 transition-all rounded-md px-1 py-2 flex-[0.8] text-xs sm:text-sm mx-0.5"
           >
-            <svg className="h-3.5 w-3.5 sm:h-4 sm:w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-            </svg>
             Edit
           </button>
           <button
@@ -118,12 +97,8 @@ const ClassCard: React.FC<ClassCardProps> = ({
               triggerVibration();
               onSchedule(cls);
             }}
-            className="flex-1 py-2.5 sm:py-3 flex items-center justify-center text-green-600 hover:bg-green-50 active:bg-green-100 transition-all touch-manipulation"
-            style={{ minHeight: '44px' }}
+            className="font-medium text-green-600 hover:bg-green-50 active:bg-green-100 transition-all rounded-md px-1 py-2 flex-[1.2] text-xs sm:text-sm mx-0.5"
           >
-            <svg className="h-3.5 w-3.5 sm:h-4 sm:w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-            </svg>
             Schedule
           </button>
           <button
@@ -131,12 +106,8 @@ const ClassCard: React.FC<ClassCardProps> = ({
               triggerVibration();
               onDelete(cls);
             }}
-            className="flex-1 py-2.5 sm:py-3 flex items-center justify-center text-red-600 hover:bg-red-50 active:bg-red-100 transition-all touch-manipulation"
-            style={{ minHeight: '44px' }}
+            className="font-medium text-red-600 hover:bg-red-50 active:bg-red-100 transition-all rounded-md px-1 py-2 flex-[0.8] text-xs sm:text-sm mx-0.5"
           >
-            <svg className="h-3.5 w-3.5 sm:h-4 sm:w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-            </svg>
             Delete
           </button>
         </div>
