@@ -16,7 +16,7 @@ async function generateClassId(grade: number): Promise<string> {
     { classId: new RegExp(`^${prefix}\\d+$`) },
     {},
     { sort: { classId: -1 } }
-  );
+  ).lean() as IClass | null;
   
   let nextNumber = 1;
   
@@ -41,25 +41,33 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const classId = searchParams.get('classId');
     const centerId = searchParams.get('centerId');
+    const subject = searchParams.get('subject');
+    const grade = searchParams.get('grade');
 
-    // Filter by classId if provided
-    if (classId) {
-      const classObj = await Class.findOne({ classId });
-      if (!classObj) {
-        return NextResponse.json({ message: 'Class not found' }, { status: 404 });
-      }
-      return NextResponse.json(classObj);
-    } 
-    // Filter by centerId if provided
-    else if (centerId) {
-      const classes = await Class.find({ centerId: parseInt(centerId) });
-      return NextResponse.json(classes);
-    } 
-    // Return all classes if no filters
-    else {
-      const classes = await Class.find({});
-      return NextResponse.json(classes);
+    // Build query object based on provided parameters
+    const query: any = {};
+    if (classId) query.classId = classId;
+    if (centerId) query.centerId = parseInt(centerId);
+    if (subject) query.subject = subject;
+    if (grade) query.grade = parseInt(grade);
+
+    // Determine what fields to return based on query complexity
+    // Only return necessary fields for list queries
+    const projection = Object.keys(query).length === 0 ? 
+      'classId name centerId grade subject schedule.days schedule.startTime schedule.endTime monthlyFee' : 
+      {};
+
+    // Execute query with projection and use lean() for better performance
+    const classes = classId 
+      ? await Class.findOne(query).lean()
+      : await Class.find(query, projection).lean();
+
+    // Handle not found for single class lookup
+    if (classId && !classes) {
+      return NextResponse.json({ message: 'Class not found' }, { status: 404 });
     }
+
+    return NextResponse.json(classes);
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }

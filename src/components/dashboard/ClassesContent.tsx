@@ -232,33 +232,29 @@ export default function ClassesContent() {
     }
   };
 
-  // Fetch enrollment counts for all classes
-  const fetchEnrollmentCounts = async () => {
-    try {
-      setLoadingCounts(true);
-      const counts: EnrollmentCounts = {};
-      
-      // Create an array of promises for parallel fetching
-      const promises = classes.map(async (cls) => {
-        const response = await fetch(`/api/enrollment?classId=${cls.classId}&status=active`);
-        if (response.ok) {
-          const data = await response.json();
-          counts[cls.classId] = data.enrollments.length;
-        } else {
-          counts[cls.classId] = 0;
-        }
-      });
-      
-      // Wait for all requests to complete
-      await Promise.all(promises);
-      setEnrollmentCounts(counts);
-    } catch (err) {
-      console.error('Error fetching enrollment counts:', err);
-      // Don't set error state to avoid disrupting the main UI
-    } finally {
-      setLoadingCounts(false);
+  // Replace the existing fetchEnrollmentCounts function with this optimized version
+const fetchEnrollmentCounts = async () => {
+  try {
+    setLoadingCounts(true);
+    
+    // Single API call instead of one per class
+    const response = await fetch('/api/class/counts');
+    
+    if (!response.ok) {
+      throw new Error('Failed to fetch enrollment counts');
     }
-  };
+    
+    // The response directly gives us the object with classId keys and count values
+    const countsMap = await response.json();
+    setEnrollmentCounts(countsMap);
+    
+  } catch (err) {
+    console.error('Error fetching enrollment counts:', err);
+    // Don't set error state to avoid disrupting the main UI
+  } finally {
+    setLoadingCounts(false);
+  }
+};
 
   const addClass = async (classData: ClassFormData) => {
     try {
