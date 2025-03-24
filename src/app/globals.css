@@ -24,3 +24,24 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+@keyframes success-appear {
+  from { transform: scale(0.8); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+
+@keyframes success-check {
+  from { stroke-dashoffset: 66; }
+  to { stroke-dashoffset: 0; }
+}
+
+.animate-success-appear {
+  animation: success-appear 0.5s cubic-bezier(0.22, 0.61, 0.36, 1) forwards;
+}
+
+.animate-success-check {
+  stroke-dasharray: 66;
+  stroke-dashoffset: 66;
+  animation: success-check 0.8s cubic-bezier(0.65, 0, 0.45, 1) forwards;
+  animation-delay: 0.2s;
+}
