@@ -248,7 +248,7 @@ export function PaymentByClass({ onPaymentSuccess }: PaymentByClassProps) {
       // Only include students enrolled on or before the end of the selected month/year
       const endOfSelectedMonth = new Date(selectedYear, selectedMonth, 0); // Last day of selected month
       
-      const filteredEnrollments = allEnrollments.filter(enrollment => {
+      const filteredEnrollments = allEnrollments.filter((enrollment: Enrollment) => {
         const enrollmentDate = new Date(enrollment.enrollmentDate);
         return enrollmentDate <= endOfSelectedMonth;
       });
