@@ -128,18 +128,69 @@ export async function PATCH(request: NextRequest) {
     const scheduleId = body._id;
     delete body._id;
     
+    // Define the type for attendanceUpdate
+    interface AttendanceUpdate {
+      sid: string;
+      present: boolean;
+      notes?: string;
+    }
+
     // Handle updating attendance if provided
     if (body.attendanceUpdates && Array.isArray(body.attendanceUpdates)) {
-      // For each student in the attendance updates
-      for (const update of body.attendanceUpdates) {
-        if (!update.sid) continue;
+      // First, get the current schedule to check existing attendance entries
+      const currentSchedule = await Schedule.findById(scheduleId);
+      
+      if (!currentSchedule) {
+        return NextResponse.json({ error: 'Schedule not found' }, { status: 404 });
+      }
+      
+      // Get all student IDs already in the attendance array
+      const existingStudentIds = new Set(currentSchedule.attendance.map((a: any) => a.sid));
+      
+      // Split updates into existing students and new students
+      const existingStudentUpdates: AttendanceUpdate[] = [];
+      const newStudentUpdates: AttendanceUpdate[] = [];
+      
+      body.attendanceUpdates.forEach((update: AttendanceUpdate) => {
+        if (!update.sid) return;
         
-        await Schedule.updateOne(
-          { _id: scheduleId, "attendance.sid": update.sid },
+        if (existingStudentIds.has(update.sid)) {
+          existingStudentUpdates.push(update);
+        } else {
+          newStudentUpdates.push(update);
+        }
+      });
+      
+      // Update existing students with bulkWrite
+      if (existingStudentUpdates.length > 0) {
+        const bulkOps = existingStudentUpdates.map(update => ({
+          updateOne: {
+            filter: { _id: scheduleId, "attendance.sid": update.sid },
+            update: {
+              $set: {
+                "attendance.$.present": update.present,
+                "attendance.$.notes": update.notes || ""
+              }
+            }
+          }
+        }));
+        
+        await Schedule.bulkWrite(bulkOps);
+      }
+      
+      // Add new students with $push
+      if (newStudentUpdates.length > 0) {
+        await Schedule.findByIdAndUpdate(
+          scheduleId,
           { 
-            $set: { 
-              "attendance.$.present": update.present,
-              "attendance.$.notes": update.notes || ""
+            $push: { 
+              attendance: { 
+                $each: newStudentUpdates.map(update => ({
+                  sid: update.sid,
+                  present: update.present,
+                  notes: update.notes || ""
+                }))
+              } 
             } 
           }
         );
@@ -148,7 +199,7 @@ export async function PATCH(request: NextRequest) {
       delete body.attendanceUpdates;
     }
     
-    // Update other schedule fields if needed
+    // Update other schedule fields if needed (including status)
     if (Object.keys(body).length > 0) {
       await Schedule.findByIdAndUpdate(
         scheduleId,
@@ -188,6 +239,40 @@ export async function DELETE(request: NextRequest) {
     }
     
     return NextResponse.json({ message: 'Schedule deleted successfully' }, { status: 200 });
+  } catch (error: any) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+}
+
+// PUT - Update a schedule
+export async function PUT(request: NextRequest) {
+  try {
+    await connectDB();
+    
+    const searchParams = request.nextUrl.searchParams;
+    const id = searchParams.get('id');
+    
+    if (!id) {
+      return NextResponse.json({ error: 'Schedule ID is required' }, { status: 400 });
+    }
+    
+    // Parse the request body to get update data
+    const updateData = await request.json();
+    
+    const updatedSchedule = await Schedule.findByIdAndUpdate(
+      id,
+      updateData,
+      { new: true, runValidators: true }
+    );
+    
+    if (!updatedSchedule) {
+      return NextResponse.json({ error: 'Schedule not found' }, { status: 404 });
+    }
+    
+    return NextResponse.json({ 
+      message: 'Schedule updated successfully', 
+      data: updatedSchedule 
+    }, { status: 200 });
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
