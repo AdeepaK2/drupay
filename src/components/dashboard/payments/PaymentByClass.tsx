@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
-import { CheckCircleIcon, ClockIcon, MagnifyingGlassIcon, XMarkIcon, AdjustmentsHorizontalIcon } from '@heroicons/react/24/solid';
+import { CheckCircleIcon, ClockIcon, MagnifyingGlassIcon, XMarkIcon, AdjustmentsHorizontalIcon, ChevronDownIcon, ChevronUpIcon, CalendarIcon } from '@heroicons/react/24/solid';
 import { useSwipeable } from 'react-swipeable';
 
 interface Class {
@@ -36,8 +36,10 @@ interface Enrollment {
     classId: string;
     name: string;
   };
+  enrollmentDate: string; // Changed from startDate to match your schema
   status: string;
-  startDate: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 interface PaymentStatus {
@@ -75,6 +77,13 @@ export function PaymentByClass({ onPaymentSuccess }: PaymentByClassProps) {
   // Refs for scroll handling
   const classListRef = useRef<HTMLDivElement>(null);
   const studentListRef = useRef<HTMLDivElement>(null);
+
+  // New state variables for month/year selection and payment history
+  const [selectedMonth, setSelectedMonth] = useState<number>(new Date().getMonth() + 1); // 1-12
+  const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
+  const [isHistoryExpanded, setIsHistoryExpanded] = useState<boolean>(false);
+  const [paymentHistory, setPaymentHistory] = useState<{[key: string]: any[]}>({});
+  const [loadingHistory, setLoadingHistory] = useState<boolean>(false);
 
   // Helper function for haptic feedback
   const triggerVibration = () => {
@@ -140,7 +149,7 @@ export function PaymentByClass({ onPaymentSuccess }: PaymentByClassProps) {
       setPaymentStatus({});
       setStudentDetails({});
     }
-  }, [selectedClass]);
+  }, [selectedClass, selectedMonth, selectedYear]); // Add month and year as dependencies
 
   // Extract unique grades and subjects when classes are loaded
   useEffect(() => {
@@ -226,21 +235,30 @@ export function PaymentByClass({ onPaymentSuccess }: PaymentByClassProps) {
       setLoadingStudents(true);
       setError(null);
       
-      // Change the query parameter to use lowercase 'active' to match the database
+      // Fetch all active enrollments for the class
       const response = await fetch(`/api/enrollment?classId=${classId}&status=active`);
       if (!response.ok) {
         throw new Error('Failed to fetch enrolled students');
       }
       
       const data = await response.json();
-      const students = data.enrollments || [];
+      const allEnrollments = data.enrollments || [];
       
-      setEnrolledStudents(students);
+      // Filter enrollments based on enrollment date
+      // Only include students enrolled on or before the end of the selected month/year
+      const endOfSelectedMonth = new Date(selectedYear, selectedMonth, 0); // Last day of selected month
+      
+      const filteredEnrollments = allEnrollments.filter(enrollment => {
+        const enrollmentDate = new Date(enrollment.enrollmentDate);
+        return enrollmentDate <= endOfSelectedMonth;
+      });
+      
+      setEnrolledStudents(filteredEnrollments);
       
       // Fetch payment status for these students
-      if (students.length > 0) {
-        await fetchStudentDetails(students);
-        await fetchPaymentStatus(students, classId);
+      if (filteredEnrollments.length > 0) {
+        await fetchStudentDetails(filteredEnrollments);
+        await fetchPaymentStatus(filteredEnrollments, classId);
       }
     } catch (err: any) {
       setError(err.message || 'Failed to fetch enrolled students');
@@ -275,17 +293,13 @@ export function PaymentByClass({ onPaymentSuccess }: PaymentByClassProps) {
 
   const fetchPaymentStatus = async (students: Enrollment[], classId: string) => {
     try {
-      const currentDate = new Date();
-      const currentMonth = currentDate.getMonth() + 1; // 1-indexed
-      const currentYear = currentDate.getFullYear();
-      
       const newPaymentStatus: {[key: string]: PaymentStatus} = {};
       
-      // Check payment status for each student
+      // Check payment status for each student with selected month/year
       await Promise.all(students.map(async (enrollment) => {
         try {
           const response = await fetch(
-            `/api/payment?studentId=${enrollment.student.sid}&classId=${classId}&year=${currentYear}&month=${currentMonth}`
+            `/api/payment?studentId=${enrollment.student.sid}&classId=${classId}&year=${selectedYear}&month=${selectedMonth}`
           );
           
           if (response.ok) {
@@ -316,6 +330,74 @@ export function PaymentByClass({ onPaymentSuccess }: PaymentByClassProps) {
       setPaymentStatus(newPaymentStatus);
     } catch (err: any) {
       console.error('Error fetching payment status:', err);
+    }
+  };
+
+  const fetchPaymentHistory = async (students: Enrollment[], classId: string) => {
+    if (!selectedClass || loadingHistory) return;
+    
+    setLoadingHistory(true);
+    const history: {[key: string]: any[]} = {};
+    
+    try {
+      // Get history for past 6 months
+      const currentDate = new Date();
+      
+      await Promise.all(students.map(async (enrollment) => {
+        const sid = enrollment.student.sid;
+        history[sid] = [];
+        
+        // Fix: Use enrollmentDate instead of startDate 
+        let enrollmentDate: Date;
+        if (enrollment.enrollmentDate) {
+          // Correctly access the enrollmentDate field
+          enrollmentDate = new Date(enrollment.enrollmentDate);
+          
+          // Set time to midnight to ensure proper date comparison
+          enrollmentDate.setHours(0, 0, 0, 0);
+          
+          if (isNaN(enrollmentDate.getTime())) {
+            console.warn(`Invalid enrollment date for student ${sid}, using fallback`);
+            enrollmentDate = new Date();
+            enrollmentDate.setMonth(enrollmentDate.getMonth() - 6);
+          }
+        } else {
+          console.warn(`No enrollment date for student ${sid}, using fallback`);
+          enrollmentDate = new Date();
+          enrollmentDate.setMonth(enrollmentDate.getMonth() - 6);
+        }
+        
+        console.log(`Student ${sid} enrolled on: ${enrollmentDate.toISOString()}`);
+        
+        // Fetch last 6 months of payment data
+        for (let i = 0; i < 6; i++) {
+          const date = new Date();
+          date.setMonth(currentDate.getMonth() - i);
+          const month = date.getMonth() + 1;
+          const year = date.getFullYear();
+          
+          // Skip current selection
+          if (month === selectedMonth && year === selectedYear) continue;
+          
+          // Create date for first day of the month we're checking
+          const historyMonthStart = new Date(year, month - 1, 1);
+          historyMonthStart.setHours(0, 0, 0, 0);
+          
+          // Skip if this month is before enrollment
+          if (historyMonthStart < enrollmentDate) {
+            console.log(`Skipping ${months[month-1]} ${year} - before enrollment (${enrollmentDate.toISOString()})`);
+            continue;
+          }
+          
+          // Rest of your code for fetching payment history...
+        }
+      }));
+      
+      setPaymentHistory(history);
+    } catch (err) {
+      console.error('Error fetching payment history:', err);
+    } finally {
+      setLoadingHistory(false);
     }
   };
 
@@ -424,13 +506,22 @@ export function PaymentByClass({ onPaymentSuccess }: PaymentByClassProps) {
   // Responsive class card for mobile view
   const ClassCard = ({ classObj }: { classObj: Class }) => (
     <div 
-      className={`border rounded-lg p-4 mb-3 ${selectedClass?._id === classObj._id ? 'bg-blue-50 border-blue-300' : 'bg-white border-gray-200'}`}
+      className={`border rounded-lg p-4 mb-3 transition-all duration-200 ${
+        selectedClass?._id === classObj._id 
+          ? 'bg-blue-50 border-blue-500 shadow-md' 
+          : 'bg-white border-gray-200 hover:border-blue-300 hover:shadow-sm'
+      }`}
       onClick={() => handleClassSelect(classObj)}
     >
       <div className="flex justify-between items-start">
         <div>
-          <h3 className="font-medium text-gray-900">{classObj.name}</h3>
-          <p className="text-sm text-gray-500">{classObj.subject}</p>
+          <div className="flex items-center">
+            <h3 className="font-medium text-gray-900">{classObj.name}</h3>
+            {selectedClass?._id === classObj._id && (
+              <span className="ml-2 inline-block w-2 h-2 bg-blue-500 rounded-full"></span>
+            )}
+          </div>
+          <p className="text-sm text-gray-500 mt-1">{classObj.subject} (Grade {classObj.grade})</p>
         </div>
         <span className="text-sm font-semibold bg-blue-100 text-blue-800 px-2 py-1 rounded-md">
           £{classObj.monthlyFee}
@@ -438,10 +529,21 @@ export function PaymentByClass({ onPaymentSuccess }: PaymentByClassProps) {
       </div>
       <div className="mt-2 text-xs text-gray-500 flex justify-between">
         <span>{classObj.schedule?.days?.join(', ')} at {classObj.schedule?.time}</span>
-        <span className="text-blue-600">ID: {classObj.classId}</span>
+        <span className="text-blue-600 font-medium">ID: {classObj.classId}</span>
       </div>
     </div>
   );
+
+  const months = [
+    'January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December'
+  ];
+
+  useEffect(() => {
+    if (selectedClass && enrolledStudents.length > 0) {
+      fetchPaymentStatus(enrolledStudents, selectedClass.classId);
+    }
+  }, [selectedClass, enrolledStudents, selectedMonth, selectedYear]);
 
   return (
     <div className="pb-6" {...swipeHandlers}>
@@ -606,14 +708,14 @@ export function PaymentByClass({ onPaymentSuccess }: PaymentByClassProps) {
         <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 mb-6" ref={classListRef}>
           <h3 className="text-lg font-medium text-gray-800 mb-4">Select a Class</h3>
           
-          {/* Mobile view - cards */}
+          {/* Mobile view - improved cards */}
           <div className="md:hidden">
             {filteredClasses.map(classObj => (
               <ClassCard key={classObj._id} classObj={classObj} />
             ))}
           </div>
           
-          {/* Desktop view - table */}
+          {/* Desktop view - improved table with clickable rows */}
           <div className="hidden md:block max-h-64 overflow-y-auto">
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
@@ -633,23 +735,29 @@ export function PaymentByClass({ onPaymentSuccess }: PaymentByClassProps) {
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Fee
                   </th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Action
-                  </th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
                 {filteredClasses.map(classObj => (
                   <tr 
                     key={classObj._id} 
-                    className={`hover:bg-gray-50 ${selectedClass?._id === classObj._id ? 'bg-blue-50' : ''}`}
+                    className={`cursor-pointer transition-colors ${
+                      selectedClass?._id === classObj._id 
+                        ? 'bg-blue-50 border-l-4 border-blue-500' 
+                        : 'hover:bg-gray-50 border-l-4 border-transparent'
+                    }`}
                     onClick={() => handleClassSelect(classObj)}
                   >
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                       {classObj.classId}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm font-medium text-gray-900">{classObj.name}</div>
+                      <div className="flex items-center">
+                        <div className="text-sm font-medium text-gray-900">{classObj.name}</div>
+                        {selectedClass?._id === classObj._id && (
+                          <span className="ml-2 flex-shrink-0 h-2 w-2 bg-blue-500 rounded-full"></span>
+                        )}
+                      </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                       {classObj.subject}
@@ -657,19 +765,10 @@ export function PaymentByClass({ onPaymentSuccess }: PaymentByClassProps) {
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                       {classObj.schedule?.days?.join(', ')} {classObj.schedule?.time}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      £{classObj.monthlyFee}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleClassSelect(classObj);
-                        }}
-                        className={`text-blue-600 hover:text-blue-900 ${selectedClass?._id === classObj._id ? 'font-bold' : ''}`}
-                      >
-                        {selectedClass?._id === classObj._id ? 'Hide Students' : 'Show Students'}
-                      </button>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span className="px-2 py-1 inline-flex text-sm leading-5 font-semibold rounded-full bg-blue-100 text-blue-800">
+                        £{classObj.monthlyFee}
+                      </span>
                     </td>
                   </tr>
                 ))}
@@ -684,16 +783,72 @@ export function PaymentByClass({ onPaymentSuccess }: PaymentByClassProps) {
       ) : null}
 
       {selectedClass && (
-        <div className="bg-white rounded-md shadow mb-6" ref={studentListRef}>
-          <div className="border-b border-gray-200 px-4 py-4">
-            <h3 className="text-lg font-medium text-gray-800">
-              Students Enrolled in {selectedClass.name}
-            </h3>
-            <p className="text-sm text-gray-500 mt-1">
-              Monthly Fee: £{selectedClass.monthlyFee} | Class ID: {selectedClass.classId}
-            </p>
+        <div 
+          className="bg-white rounded-lg shadow-md border border-gray-200 mb-6 animate-fadeIn transition-all"
+          ref={studentListRef}
+        >
+          <div className="bg-blue-50 border-b border-blue-200 px-5 py-4 rounded-t-lg">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-lg font-medium text-blue-800">
+                  {selectedClass.name} Students
+                </h3>
+                <p className="text-sm text-blue-700 mt-1">
+                  Monthly Fee: <span className="font-semibold">£{selectedClass.monthlyFee}</span> | Class ID: {selectedClass.classId}
+                </p>
+              </div>
+              <button
+                onClick={() => setSelectedClass(null)}
+                className="text-blue-600 hover:text-blue-800 md:hidden"
+                aria-label="Close student list"
+              >
+                <XMarkIcon className="h-5 w-5" />
+              </button>
+            </div>
           </div>
           
+          {/* Month and Year Selector */}
+          <div className="p-4 border-b border-gray-200 flex items-center justify-between">
+            <div className="flex items-center space-x-2">
+              <CalendarIcon className="h-5 w-5 text-gray-500" />
+              <select
+                value={selectedMonth}
+                onChange={(e) => setSelectedMonth(parseInt(e.target.value))}
+                className="block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md"
+              >
+                {months.map((month, index) => (
+                  <option key={index} value={index + 1}>{month}</option>
+                ))}
+              </select>
+              <select
+                value={selectedYear}
+                onChange={(e) => setSelectedYear(parseInt(e.target.value))}
+                className="block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md"
+              >
+                {[...Array(5)].map((_, index) => {
+                  const year = new Date().getFullYear() - index;
+                  return <option key={year} value={year}>{year}</option>;
+                })}
+              </select>
+            </div>
+            <button
+              onClick={() => setIsHistoryExpanded(!isHistoryExpanded)}
+              className="text-blue-600 hover:text-blue-800 flex items-center"
+            >
+              {isHistoryExpanded ? (
+                <>
+                  <ChevronUpIcon className="h-5 w-5" />
+                  Hide History
+                </>
+              ) : (
+                <>
+                  <ChevronDownIcon className="h-5 w-5" />
+                  Show History
+                </>
+              )}
+            </button>
+          </div>
+
           {loadingStudents ? (
             <div className="p-6 text-center">
               <div className="inline-block animate-spin rounded-full h-6 w-6 border-t-2 border-b-2 border-blue-500"></div>
@@ -701,7 +856,7 @@ export function PaymentByClass({ onPaymentSuccess }: PaymentByClassProps) {
             </div>
           ) : enrolledStudents.length > 0 ? (
             <div className="p-3 md:p-6">
-              {/* Mobile view - cards */}
+              {/* Mobile view - cards with improved styling */}
               <div className="md:hidden space-y-3">
                 {enrolledStudents.map((student) => {
                   const studentPaymentStatus = paymentStatus[student.student.sid];
@@ -711,7 +866,11 @@ export function PaymentByClass({ onPaymentSuccess }: PaymentByClassProps) {
                   return (
                     <div 
                       key={student._id} 
-                      className={`border rounded-lg p-4 ${isPaid ? 'bg-green-50 border-green-200' : 'bg-white border-gray-200'}`}
+                      className={`border rounded-lg p-4 ${
+                        isPaid 
+                          ? 'bg-green-50 border-green-200' 
+                          : 'bg-white border-gray-200'
+                      }`}
                     >
                       <div className="flex justify-between items-start">
                         <div>
@@ -844,7 +1003,11 @@ export function PaymentByClass({ onPaymentSuccess }: PaymentByClassProps) {
             </div>
           ) : (
             <div className="p-6 text-center">
-              <p className="text-sm text-gray-500">No students enrolled in this class.</p>
+              <p className="text-sm text-gray-500">
+                {selectedMonth !== new Date().getMonth() + 1 || selectedYear !== new Date().getFullYear()
+                  ? `No students were enrolled in this class during ${months[selectedMonth - 1]} ${selectedYear}.`
+                  : "No students enrolled in this class."}
+              </p>
             </div>
           )}
         </div>
