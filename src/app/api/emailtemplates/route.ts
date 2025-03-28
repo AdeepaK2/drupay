@@ -117,14 +117,17 @@ export async function PUT(request: NextRequest) {
 }
 
 // DELETE - Delete template
-export async function DELETE(
-  request: NextRequest,
-  { params }: { params: { id: string } }
-) {
+export async function DELETE(request: NextRequest) {
   try {
     await connectDB();
     
-    const id = params.id;
+    // Get ID from query parameter instead of route parameter
+    const searchParams = request.nextUrl.searchParams;
+    const id = searchParams.get('id');
+    
+    if (!id) {
+      return NextResponse.json({ error: 'Template ID is required' }, { status: 400 });
+    }
     
     // Check if template exists
     const existingTemplate = await EmailTemplate.findById(id);
