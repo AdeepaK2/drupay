@@ -43,6 +43,9 @@ const EnrollmentModal: React.FC<EnrollmentModalProps> = ({ isOpen, onClose, stud
   const [selectedGrade, setSelectedGrade] = useState('');
   const [selectedCenter, setSelectedCenter] = useState('');
   const [centers, setCenters] = useState<Center[]>([]);
+  const [enrollmentDate, setEnrollmentDate] = useState<string>(
+    new Date().toISOString().split('T')[0]
+  );
 
   useEffect(() => {
     if (isOpen) {
@@ -52,6 +55,7 @@ const EnrollmentModal: React.FC<EnrollmentModalProps> = ({ isOpen, onClose, stud
       setSearchTerm('');
       setSelectedGrade('');
       setSelectedCenter('');
+      setEnrollmentDate(new Date().toISOString().split('T')[0]); // Set to today's date
       fetchCentersAndClasses();
     }
   }, [isOpen]);
@@ -161,7 +165,12 @@ const EnrollmentModal: React.FC<EnrollmentModalProps> = ({ isOpen, onClose, stud
       setIsLoading(true);
       setError('');
 
-      const response = await fetch('/api/enrollment', {
+      // Get selected class details to show fee information
+      const selectedClassDetails = classes.find(cls => cls.classId === selectedClassId);
+      const monthlyFee = selectedClassDetails?.monthlyFee || 0;
+
+      // Create the enrollment with the specified enrollment date
+      const enrollmentResponse = await fetch('/api/enrollment', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -171,18 +180,128 @@ const EnrollmentModal: React.FC<EnrollmentModalProps> = ({ isOpen, onClose, stud
             _id: student?._id,
             sid: student?.sid 
           }, 
-          class: { classId: selectedClassId }
+          class: { classId: selectedClassId },
+          startDate: enrollmentDate // Include the enrollment date
         }),
       });
 
-      if (!response.ok) {
-        const errorData = await response.json();
+      if (!enrollmentResponse.ok) {
+        const errorData = await enrollmentResponse.json();
         throw new Error(errorData.error || 'Failed to enroll student');
       }
 
-      const updatedStudent = await response.json();
-      onEnrollSuccess(updatedStudent);
-      onClose();
+      const enrollmentData = await enrollmentResponse.json();
+      
+      // Now create a prorated payment record for the current month
+      const currentDate = new Date(enrollmentDate);
+      const currentMonth = currentDate.getMonth() + 1; // 1-based month
+      const currentYear = currentDate.getFullYear();
+      
+      const paymentResponse = await fetch('/api/payment', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          studentId: student?.sid,
+          classId: selectedClassId,
+          academicYear: currentYear,
+          month: currentMonth,
+          notes: `Auto-generated payment for enrollment on ${enrollmentDate}`,
+          useSimpleProration: true // Add this flag to use simple proportional proration
+        }),
+      });
+      
+      if (!paymentResponse.ok) {
+        // If payment creation fails, log the error but don't block enrollment
+        console.error('Failed to create prorated payment record', await paymentResponse.json());
+        // Still continue with enrollment success
+        onEnrollSuccess(enrollmentData);
+        onClose();
+      } else {
+        const paymentData = await paymentResponse.json();
+        console.log('Prorated payment created:', paymentData);
+        
+        // Calculate remaining balance if prorated
+        const proratedAmount = paymentData.payment?.amount || monthlyFee;
+        const isProrated = proratedAmount < monthlyFee;
+        
+        if (isProrated || paymentData.payment?.amount < monthlyFee) {
+          // Get enrollment week information
+          const enrollDate = new Date(enrollmentDate);
+          const monthStartDate = new Date(currentYear, currentMonth - 1, 1);
+          const monthEndDate = new Date(currentYear, currentMonth, 0);
+          const daysInMonth = monthEndDate.getDate();
+          const weeksInMonth = Math.ceil(daysInMonth / 7);
+          
+          const dayOfMonth = enrollDate.getDate();
+          const enrollmentWeek = Math.ceil(dayOfMonth / 7);
+          
+          // Calculate remaining weeks (including enrollment week)
+          const remainingWeeks = weeksInMonth - enrollmentWeek + 1;
+          
+          // Calculate weekly rate
+          const weeklyRate = monthlyFee / weeksInMonth;
+          
+          // Calculate prorated amount based on remaining weeks
+          const calculatedAmount = remainingWeeks * weeklyRate;
+          const displayAmount = Math.round(calculatedAmount); // Round to whole number
+          
+          // If our calculation doesn't match the API's, update the payment with our calculated amount
+          if (Math.abs(displayAmount - proratedAmount) > 0.1) {
+            try {
+              // Update the payment with our calculated amount
+              await fetch('/api/payment', {
+                method: 'PATCH',
+                headers: {
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                  _id: paymentData.payment._id,
+                  amount: displayAmount, 
+                  notes: `Auto-generated payment for enrollment on ${enrollmentDate}. Weekly proration: ${remainingWeeks}/${weeksInMonth} weeks.`
+                }),
+              });
+            } catch (err) {
+              console.error('Failed to update payment amount', err);
+            }
+          }
+          
+          const percentPaid = Math.round((displayAmount/monthlyFee) * 100);
+          
+          // Create a custom success message with detailed prorated payment info
+          const successMessage = {
+            ...enrollmentData,
+            message: `${student?.name} has been successfully enrolled in ${selectedClassDetails?.name}.
+
+PAYMENT DETAILS:
+• Joined in week ${enrollmentWeek} of ${weeksInMonth}
+• Paying for ${remainingWeeks} of ${weeksInMonth} weeks
+• Full monthly fee: £${monthlyFee}
+• Prorated amount: £${displayAmount} (${percentPaid}% of full fee)
+
+A payment record has been automatically created.`
+          };
+          
+          onEnrollSuccess(successMessage);
+          onClose();
+        } else {
+          // Full payment required (enrolled in first week)
+          const successMessage = {
+            ...enrollmentData,
+            message: `${student?.name} has been successfully enrolled in ${selectedClassDetails?.name}.
+
+PAYMENT DETAILS:
+• Full monthly fee: £${monthlyFee.toFixed(2)}
+• Enrolled in first week, so full payment is required.
+
+A payment record has been automatically created.`
+          };
+          
+          onEnrollSuccess(successMessage);
+          onClose();
+        }
+      }
     } catch (err: any) {
       setError(err.message || 'An error occurred while enrolling the student');
     } finally {
@@ -200,6 +319,23 @@ const EnrollmentModal: React.FC<EnrollmentModalProps> = ({ isOpen, onClose, stud
         </div>
         <div className="p-4">
           {error && <div className="text-red-500 mb-4">{error}</div>}
+
+          {/* Enrollment Date Field */}
+          <div className="mb-4">
+            <label htmlFor="enrollmentDate" className="block text-sm font-medium text-gray-700 mb-1">
+              Enrollment Date
+            </label>
+            <input
+              type="date"
+              id="enrollmentDate"
+              value={enrollmentDate}
+              onChange={(e) => setEnrollmentDate(e.target.value)}
+              className="border rounded-md px-3 py-2 w-full"
+            />
+            <p className="mt-1 text-xs text-gray-500">
+              Payment will be prorated based on this enrollment date
+            </p>
+          </div>
 
           {/* Search and Filters */}
           <div className="mb-4 grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -236,7 +372,7 @@ const EnrollmentModal: React.FC<EnrollmentModalProps> = ({ isOpen, onClose, stud
             </select>
           </div>
 
-          {/* Class List */}
+          {/* Class List with Fees */}
           <div className="max-h-64 overflow-y-auto border rounded-md">
             {filteredClasses.length > 0 ? (
               <ul>
@@ -248,11 +384,15 @@ const EnrollmentModal: React.FC<EnrollmentModalProps> = ({ isOpen, onClose, stud
                     } hover:bg-blue-50`}
                     onClick={() => setSelectedClassId(cls.classId)}
                   >
-                    <div className="flex justify-between">
-                      <span>
-                        {cls.name} (Grade {cls.grade})
-                      </span>
-                      <span className="text-gray-500">{cls.centerName}</span>
+                    <div className="flex justify-between items-center">
+                      <div>
+                        <span className="font-medium">{cls.name}</span>
+                        <span className="ml-2 text-sm text-gray-600">(Grade {cls.grade})</span>
+                      </div>
+                      <div className="text-right">
+                        <span className="text-gray-500 mr-2">{cls.centerName}</span>
+                        <span className="font-semibold">£{cls.monthlyFee}/month</span>
+                      </div>
                     </div>
                   </li>
                 ))}
@@ -261,6 +401,14 @@ const EnrollmentModal: React.FC<EnrollmentModalProps> = ({ isOpen, onClose, stud
               <div className="p-4 text-gray-500">No classes found</div>
             )}
           </div>
+          
+          {selectedClassId && (
+            <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-md text-sm">
+              <p>
+                <span className="font-medium">Note:</span> A prorated payment record will be automatically created for the current month based on the enrollment date.
+              </p>
+            </div>
+          )}
         </div>
         <div className="p-4 border-t flex justify-end space-x-2">
           <button
@@ -272,7 +420,7 @@ const EnrollmentModal: React.FC<EnrollmentModalProps> = ({ isOpen, onClose, stud
           <button
             onClick={handleEnroll}
             disabled={isLoading}
-            className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+            className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-blue-300"
           >
             {isLoading ? 'Enrolling...' : 'Enroll'}
           </button>

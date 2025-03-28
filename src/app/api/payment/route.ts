@@ -14,7 +14,7 @@ async function connectDB() {
   }
 }
 
-function calculateProratedAmount(monthlyFee: number, enrollmentDate: Date, month: number, year: number): number {
+function calculateProratedAmount(monthlyFee: number, enrollmentDate: Date, month: number, year: number, useSimpleProration: boolean = false): number {
   // Create date objects for the first and last day of the target month
   const startOfMonth = new Date(year, month - 1, 1);
   const endOfMonth = new Date(year, month, 0); 
@@ -23,6 +23,7 @@ function calculateProratedAmount(monthlyFee: number, enrollmentDate: Date, month
   console.log('Start of month:', startOfMonth);
   console.log('End of month:', endOfMonth);
   console.log('Enrollment date:', enrollmentDate);
+  console.log('Using simple proration:', useSimpleProration);
   
   // If enrollment is before the month starts, charge full fee
   if (enrollmentDate < startOfMonth) {
@@ -45,14 +46,30 @@ function calculateProratedAmount(monthlyFee: number, enrollmentDate: Date, month
   const enrollmentWeek = Math.ceil(dayOfMonth / 7);
   console.log('Enrollment week:', enrollmentWeek);
   
-  // Calculate remaining weeks in month
-  const remainingWeeks = weeksInMonth - enrollmentWeek + 1;
-  console.log('Remaining weeks:', remainingWeeks);
+  if (useSimpleProration) {
+    // Simple weekly proration: only pay for the weeks student will attend
+    // If enrolled in week 5 of a 5-week month, pay for 1 week = 1/5 of fee
+    
+    // Calculate remaining weeks in month (including enrollment week)
+    const remainingWeeks = weeksInMonth - enrollmentWeek + 1;
+    const weeklyRate = monthlyFee / weeksInMonth;
+    
+    // Use simple multiplication and rounding to ensure whole numbers
+    const proratedAmount = Math.round(remainingWeeks * weeklyRate);
+    
+    console.log('Simple proration - weeks in month:', weeksInMonth);
+    console.log('Simple proration - enrollment week:', enrollmentWeek);
+    console.log('Simple proration - remaining weeks:', remainingWeeks);
+    console.log('Simple proration - weekly rate:', weeklyRate);
+    console.log('Simple proration - prorated amount:', proratedAmount);
+    
+    return proratedAmount;
+  }
   
-  // Proration rules:
+  // Rest of the function remains unchanged for non-simple proration
+  // Regular proration rules:
   // 1. If enrolled in first 60% of the month (3 weeks in a 5-week month), charge full fee
   // 2. If enrolled in last 40% of the month, prorate based on remaining weeks
-  
   const thresholdWeek = Math.ceil(weeksInMonth * 0.6);
   console.log('Threshold week:', thresholdWeek);
   
@@ -60,8 +77,11 @@ function calculateProratedAmount(monthlyFee: number, enrollmentDate: Date, month
     console.log('Enrolled in first 60% of month - full fee:', monthlyFee);
     return monthlyFee;
   } else {
+    // Calculate remaining weeks
+    const remainingWeeks = weeksInMonth - enrollmentWeek + 1;
     // Calculate prorated amount based on remaining weeks
     const proratedAmount = Math.round((remainingWeeks / weeksInMonth) * monthlyFee);
+    console.log('Remaining weeks:', remainingWeeks);
     console.log('Prorated amount based on weeks:', proratedAmount);
     return proratedAmount;
   }
@@ -249,6 +269,9 @@ export async function POST(request: NextRequest) {
     // Calculate due date (usually last day of the month or can be customized)
     const dueDate = new Date(body.academicYear, body.month - 1, 28); // 28th of the month
     
+    // Use the useSimpleProration flag if provided
+    const useSimpleProration = body.useSimpleProration === true;
+    
     // Calculate prorated amount if student joined mid-month
     // Check if startDate exists in enrollment, otherwise use createdAt as fallback
     let enrollmentDate;
@@ -270,7 +293,7 @@ export async function POST(request: NextRequest) {
     console.log('Parsed enrollment date:', enrollmentDate);
     
     const monthlyFee = classObj.monthlyFee;
-    const amount = calculateProratedAmount(monthlyFee, enrollmentDate, body.month, body.academicYear);
+    const amount = calculateProratedAmount(monthlyFee, enrollmentDate, body.month, body.academicYear, useSimpleProration);
     
     // Create payment object
     const paymentData = {
