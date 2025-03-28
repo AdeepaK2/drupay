@@ -53,6 +53,13 @@ const studentSchema = new Schema<IStudent>(
   { timestamps: true } // This automatically adds createdAt and updatedAt fields
 );
 
+// Add indexes for better query performance
+studentSchema.index({ sid: 1 }); // Index for student ID (unique)
+studentSchema.index({ email: 1 }); // Index for email (unique)
+studentSchema.index({ 'parent.email': 1 }); // Index for parent's email
+studentSchema.index({ joinedDate: 1 }); // Index for joined date (e.g., sorting or filtering by date)
+studentSchema.index({ 'admissionFeeStatus.paid': 1 }); // Index for admission fee payment status
+
 // Check if model exists before creating to avoid overwrite during hot reloads
 const Student = mongoose.models.Student || mongoose.model<IStudent>('Student', studentSchema);
 

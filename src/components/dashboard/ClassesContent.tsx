@@ -338,6 +338,25 @@ const fetchEnrollmentCounts = async () => {
     try {
       setLoading(true);
       triggerVibration();
+
+      // First, fetch all schedules for this class
+      const schedulesResponse = await fetch(`/api/schedule?classId=${classId}`);
+      
+      if (schedulesResponse.ok) {
+        const schedules = await schedulesResponse.json();
+        
+        // Delete each schedule for this class
+        const deletePromises = schedules.map((schedule: ScheduleData) => 
+          fetch(`/api/schedule?id=${schedule._id}`, {
+            method: 'DELETE',
+          })
+        );
+        
+        // Wait for all schedule deletions to complete
+        await Promise.all(deletePromises);
+      }
+      
+      // Now delete the class itself
       const response = await fetch(`/api/class?classId=${classId}`, {
         method: 'DELETE',
       });
@@ -358,7 +377,7 @@ const fetchEnrollmentCounts = async () => {
         return newCounts;
       });
       
-      setSuccessMessage('Class deleted successfully');
+      setSuccessMessage('Class and all its schedules deleted successfully');
       setIsDeleteModalOpen(false);
       setSelectedClass(null);
     } catch (err: any) {
@@ -392,29 +411,31 @@ const fetchEnrollmentCounts = async () => {
     }
   };
   
-  // Add this new function to automatically schedule all classes
-  const autoScheduleAllClasses = async () => {
-    if (classes.length === 0 || autoSchedulingStatus.loading) {
-      return;
-    }
+  // Update the autoScheduleAllClasses function with more robust error handling
+const autoScheduleAllClasses = async () => {
+  if (classes.length === 0 || autoSchedulingStatus.loading) {
+    return;
+  }
+  
+  setAutoSchedulingStatus(prev => ({ 
+    ...prev, 
+    loading: true,
+    month: selectedMonth,
+    year: selectedYear
+  }));
+  
+  try {
+    let schedulesCreated = 0;
+    let schedulesFailed = 0;
     
-    setAutoSchedulingStatus(prev => ({ 
-      ...prev, 
-      loading: true,
-      month: selectedMonth,
-      year: selectedYear
-    }));
-    
-    try {
-      let schedulesCreated = 0;
+    // Process each class one by one
+    for (const cls of classes) {
+      // Skip classes without proper schedule configuration
+      if (!cls.schedule || !cls.schedule.days || !Array.isArray(cls.schedule.days) || cls.schedule.days.length === 0) {
+        continue;
+      }
       
-      // Process each class one by one
-      for (const cls of classes) {
-        // Skip classes without proper schedule configuration
-        if (!cls.schedule || !cls.schedule.days || !Array.isArray(cls.schedule.days) || cls.schedule.days.length === 0) {
-          continue;
-        }
-        
+      try {
         // First fetch existing schedules for this class and month/year
         const response = await fetch(
           `/api/schedule?classId=${cls.classId}&month=${selectedMonth}&year=${selectedYear}`
@@ -446,46 +467,136 @@ const fetchEnrollmentCounts = async () => {
         for (const date of datesToSchedule) {
           const formattedDate = format(date, 'yyyy-MM-dd');
           
-          const scheduleResponse = await fetch('/api/schedule', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              classId: cls.classId,
-              date: formattedDate,
-              startTime: cls.schedule?.startTime,
-              endTime: cls.schedule?.endTime,
-              notes: `Auto-scheduled for regular ${format(date, 'EEEE')} class`
-            }),
-          });
-          
-          if (scheduleResponse.ok) {
-            schedulesCreated++;
+          try {
+            const scheduleResponse = await fetch('/api/schedule', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                classId: cls.classId,
+                date: formattedDate,
+                startTime: cls.schedule?.startTime,
+                endTime: cls.schedule?.endTime,
+                notes: `Auto-scheduled for regular ${format(date, 'EEEE')} class`
+              }),
+            });
+            
+            if (scheduleResponse.ok) {
+              schedulesCreated++;
+            } else {
+              schedulesFailed++;
+            }
+          } catch (error) {
+            schedulesFailed++;
           }
         }
+      } catch (error) {
+        console.error(`Error processing class ${cls.classId}:`, error);
       }
-      
-      // Show success message if schedules were created
-      if (schedulesCreated > 0) {
-        setSuccessMessage(`Auto-scheduled ${schedulesCreated} class days for ${new Date(selectedYear, selectedMonth - 1).toLocaleString('default', { month: 'long' })} ${selectedYear}`);
-      }
-      
-      // Refresh schedules if a class is selected
-      if (selectedClass) {
-        fetchClassSchedules(selectedClass.classId);
-      }
-      
-    } catch (error) {
-      console.error('Error auto-scheduling classes:', error);
-    } finally {
-      setAutoSchedulingStatus(prev => ({ 
-        ...prev, 
-        loading: false,
-        attempted: true
-      }));
     }
-  };
+    
+    // Show success message if schedules were created (even if some failed)
+    if (schedulesCreated > 0) {
+      setSuccessMessage(`Auto-scheduled ${schedulesCreated} class days for ${new Date(selectedYear, selectedMonth - 1).toLocaleString('default', { month: 'long' })} ${selectedYear}${schedulesFailed > 0 ? ` (${schedulesFailed} failed)` : ''}`);
+      setError(null); // Clear any previous errors
+    } else if (schedulesFailed > 0) {
+      setError(`Failed to schedule ${schedulesFailed} class days`);
+    }
+    
+    // Refresh schedules if a class is selected
+    if (selectedClass) {
+      fetchClassSchedules(selectedClass.classId);
+    }
+    
+  } catch (error) {
+    console.error('Error auto-scheduling classes:', error);
+    // Don't set error state here, as we already handle errors per operation
+  } finally {
+    setAutoSchedulingStatus(prev => ({ 
+      ...prev, 
+      loading: false,
+      attempted: true
+    }));
+  }
+};
+
+// Update the bulkScheduleClasses function to handle errors better
+const bulkScheduleClasses = async () => {
+  if (!selectedClass || suggestedDates.length === 0) {
+    setError('No dates available for bulk scheduling');
+    return;
+  }
+  
+  try {
+    setLoading(true);
+    triggerVibration();
+    
+    // Filter out dates that are already scheduled
+    const existingDates = schedules.map(schedule => 
+      new Date(schedule.date).toISOString().split('T')[0]
+    );
+    
+    const datesToSchedule = suggestedDates.filter(date => 
+      !existingDates.includes(date.toISOString().split('T')[0]) &&
+      (!isPast(date) || isToday(date))
+    );
+    
+    if (datesToSchedule.length === 0) {
+      setSuccessMessage('All suggested dates are already scheduled');
+      setLoading(false);
+      return;
+    }
+    
+    // Create an array of promises for each date to schedule
+    let successCount = 0;
+    let failCount = 0;
+    
+    for (const date of datesToSchedule) {
+      const formattedDate = format(date, 'yyyy-MM-dd');
+      
+      try {
+        const response = await fetch('/api/schedule', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            classId: selectedClass.classId,
+            date: formattedDate,
+            startTime: selectedClass.schedule?.startTime,
+            endTime: selectedClass.schedule?.endTime,
+            notes: `Auto-scheduled for regular ${format(date, 'EEEE')} class`
+          }),
+        });
+        
+        if (response.ok) {
+          successCount++;
+        } else {
+          failCount++;
+        }
+      } catch (err) {
+        failCount++;
+      }
+    }
+    
+    // Refresh the schedule list regardless of any failures
+    fetchClassSchedules(selectedClass.classId);
+    
+    // Show appropriate message based on results
+    if (successCount > 0) {
+      setSuccessMessage(`Successfully scheduled ${successCount} class days${failCount > 0 ? ` (${failCount} failed)` : ''}`);
+      setError(null); // Clear any previous errors
+    } else if (failCount > 0) {
+      setError(`Failed to schedule ${failCount} class days`);
+    }
+  } catch (err: any) {
+    console.error('Error bulk scheduling:', err);
+    setError('Failed to bulk schedule classes');
+  } finally {
+    setLoading(false);
+  }
+};
 
   // Function to open schedule modal with suggestions
   const openScheduleModal = (cls: ClassData) => {
@@ -699,74 +810,6 @@ const fetchEnrollmentCounts = async () => {
     }
     
     return suggestions;
-  };
-
-  // Add this function to schedule multiple class days at once
-  const bulkScheduleClasses = async () => {
-    if (!selectedClass || suggestedDates.length === 0) {
-      setError('No dates available for bulk scheduling');
-      return;
-    }
-    
-    try {
-      setLoading(true);
-      triggerVibration();
-      
-      // Filter out dates that are already scheduled
-      const existingDates = schedules.map(schedule => 
-        new Date(schedule.date).toISOString().split('T')[0]
-      );
-      
-      const datesToSchedule = suggestedDates.filter(date => 
-        !existingDates.includes(date.toISOString().split('T')[0]) &&
-        (!isPast(date) || isToday(date))
-      );
-      
-      if (datesToSchedule.length === 0) {
-        setSuccessMessage('All suggested dates are already scheduled');
-        setLoading(false);
-        return;
-      }
-      
-      // Create an array of promises for each date to schedule
-      const promises = datesToSchedule.map(date => {
-        const formattedDate = format(date, 'yyyy-MM-dd');
-        
-        return fetch('/api/schedule', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            classId: selectedClass.classId,
-            date: formattedDate,
-            startTime: selectedClass.schedule?.startTime,
-            endTime: selectedClass.schedule?.endTime,
-            notes: `Auto-scheduled for regular ${format(date, 'EEEE')} class`
-          }),
-        });
-      });
-      
-      // Wait for all requests to complete
-      const responses = await Promise.all(promises);
-      
-      // Check for any errors
-      const errors = responses.filter(response => !response.ok);
-      
-      if (errors.length > 0) {
-        throw new Error(`Failed to schedule ${errors.length} dates`);
-      }
-      
-      // Refresh the schedule list
-      fetchClassSchedules(selectedClass.classId);
-      
-      setSuccessMessage(`Successfully scheduled ${datesToSchedule.length} class days`);
-    } catch (err: any) {
-      console.error('Error bulk scheduling:', err);
-      setError(err.message || 'Failed to bulk schedule classes');
-    } finally {
-      setLoading(false);
-    }
   };
 
   // Event handlers
@@ -1175,7 +1218,7 @@ const fetchEnrollmentCounts = async () => {
                     name="monthlyFee"
                     value={formData.monthlyFee}
                     onChange={handleFormChange}
-                    className="border rounded-lg w-full pl-10 pr-4 py-3 text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="border rounded-lg w-full pl-10 pr-4 py-3 text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                     min="0"
                     step="0.01"
                     required

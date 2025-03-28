@@ -48,6 +48,12 @@ interface PaymentStatus {
   paymentId?: string;
   amount?: number;
   paidDate?: string;
+  partialPayments?: {
+    amount: number;
+    date: string;
+    paymentId: string;
+  }[];
+  remainingBalance?: number;
 }
 
 interface PaymentByClassProps {
@@ -66,6 +72,12 @@ export function PaymentByClass({ onPaymentSuccess }: PaymentByClassProps) {
   const [processingPayment, setProcessingPayment] = useState<string | null>(null);
   const [paymentStatus, setPaymentStatus] = useState<{[key: string]: PaymentStatus}>({});
   const [isRefreshing, setIsRefreshing] = useState(false);
+  
+  // New state for partial payments
+  const [showPartialPaymentModal, setShowPartialPaymentModal] = useState<boolean>(false);
+  const [partialPaymentStudent, setPartialPaymentStudent] = useState<any>(null);
+  const [partialPaymentAmount, setPartialPaymentAmount] = useState<string>('');
+  const [partialPaymentError, setPartialPaymentError] = useState<string | null>(null);
   
   // New filter state variables
   const [gradeFilter, setGradeFilter] = useState<number | null>(null);
@@ -308,12 +320,28 @@ export function PaymentByClass({ onPaymentSuccess }: PaymentByClassProps) {
             
             if (payments.length > 0) {
               const latestPayment = payments[0];
+              
+              // Check if we have partial payments
+              const partialPayments = payments
+                .filter((p: any) => p.status === 'partial' || (p.notes && p.notes.includes('Partial payment')))
+                .map((p: any) => ({
+                  amount: p.amount || 0,
+                  date: p.paidDate || p.updatedAt,
+                  paymentId: p._id
+                }));
+              
+              // Calculate total amount paid
+              const totalPaid = partialPayments.reduce((sum: number, p: any) => sum + p.amount, 0);
+              const remainingBalance = selectedClass?.monthlyFee ? (selectedClass.monthlyFee - totalPaid) : 0;
+              
               newPaymentStatus[enrollment.student.sid] = {
                 studentId: enrollment.student.sid,
-                paid: latestPayment.status === 'paid',
+                paid: latestPayment.status === 'paid' || remainingBalance <= 0,
                 paymentId: latestPayment._id,
                 amount: latestPayment.amount,
-                paidDate: latestPayment.paidDate
+                paidDate: latestPayment.paidDate,
+                partialPayments: partialPayments.length > 0 ? partialPayments : undefined,
+                remainingBalance: partialPayments.length > 0 ? remainingBalance : undefined
               };
             } else {
               newPaymentStatus[enrollment.student.sid] = {
@@ -537,6 +565,136 @@ export function PaymentByClass({ onPaymentSuccess }: PaymentByClassProps) {
       onPaymentSuccess(`Payment for ${student.student.name} in ${classObj.name} has been unmarked!`);
     } catch (err: any) {
       setError(err.message);
+    } finally {
+      setProcessingPayment(null);
+    }
+  };
+
+  const handlePartialPayment = async () => {
+    if (!partialPaymentStudent || !selectedClass) return;
+    
+    const amount = parseFloat(partialPaymentAmount);
+    
+    // Validate amount
+    if (isNaN(amount) || amount <= 0) {
+      setPartialPaymentError('Please enter a valid amount');
+      return;
+    }
+    
+    // Calculate remaining balance
+    const studentId = partialPaymentStudent.student.sid;
+    const existingPaymentStatus = paymentStatus[studentId];
+    const totalPaidSoFar = existingPaymentStatus?.partialPayments?.reduce((total, payment) => total + payment.amount, 0) || 0;
+    const newTotalPaid = totalPaidSoFar + amount;
+    
+    // FIXED: Changed comparison from >= to > to allow exact payment of remaining balance
+    if (newTotalPaid > selectedClass.monthlyFee) {
+      setPartialPaymentError(`This payment would exceed the full fee amount. Maximum payment: £${(selectedClass.monthlyFee - totalPaidSoFar).toFixed(2)}`);
+      return;
+    }
+    
+    const paymentIdentifier = `${studentId}-${selectedClass.classId}`;
+    
+    try {
+      setProcessingPayment(paymentIdentifier);
+      setPartialPaymentError(null);
+      
+      // Check if payment record exists
+      const checkResponse = await fetch(`/api/payment?studentId=${studentId}&classId=${selectedClass.classId}&year=${selectedYear}&month=${selectedMonth}`);
+      const checkData = await checkResponse.json();
+      
+      let paymentId;
+      
+      // Create payment if it doesn't exist
+      if (!checkData.payments || checkData.payments.length === 0) {
+        const createResponse = await fetch('/api/payment', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            studentId: studentId,
+            classId: selectedClass.classId,
+            academicYear: selectedYear,
+            month: selectedMonth,
+            notes: 'Partial payment made'
+          }),
+        });
+        
+        const createData = await createResponse.json();
+        
+        if (!createResponse.ok) {
+          throw new Error(createData.error || 'Failed to create payment record');
+        }
+        
+        paymentId = createData.payment._id;
+      } else {
+        paymentId = checkData.payments[0]._id;
+      }
+      
+      // Calculate if this payment completes the full amount
+      const remainingBalance = selectedClass.monthlyFee - newTotalPaid;
+      const isPaidInFull = remainingBalance <= 0;
+      
+      // FIXED: Change status to 'paid' if this payment completes the full amount
+      const response = await fetch('/api/payment', {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          _id: paymentId,
+          // Mark as paid if full amount is reached
+          status: isPaidInFull ? 'paid' : 'pending', 
+          amount: selectedClass.monthlyFee, // Always store the full fee amount
+          paidDate: isPaidInFull ? new Date().toISOString() : undefined,
+          paymentMethod: studentDetails[studentId]?.paymentMethod || 'Cash',
+          notes: isPaidInFull 
+            ? `Final payment of £${amount} received. Total paid: £${selectedClass.monthlyFee.toFixed(2)}.` 
+            : `Partial payment of £${amount} received. Total paid so far: £${newTotalPaid.toFixed(2)}. Remaining: £${remainingBalance.toFixed(2)}`
+        }),
+      });
+      
+      const data = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to process partial payment');
+      }
+      
+      // Update payment status locally
+      // Update the existing partial payments or create a new array
+      const updatedPartialPayments = [
+        ...(existingPaymentStatus?.partialPayments || []),
+        {
+          amount,
+          date: new Date().toISOString(),
+          paymentId
+        }
+      ];
+      
+      setPaymentStatus(prev => ({
+        ...prev,
+        [studentId]: {
+          studentId,
+          paid: isPaidInFull,
+          paymentId,
+          amount,
+          paidDate: isPaidInFull ? new Date().toISOString() : undefined,
+          partialPayments: updatedPartialPayments,
+          remainingBalance
+        }
+      }));
+      
+      setShowPartialPaymentModal(false);
+      setPartialPaymentAmount('');
+      
+      if (isPaidInFull) {
+        onPaymentSuccess(`Payment completed for ${partialPaymentStudent.student.name}! Full amount of £${selectedClass.monthlyFee} received.`);
+      } else {
+        onPaymentSuccess(`Partial payment of £${amount} recorded for ${partialPaymentStudent.student.name}!`);
+      }
+    } catch (err: any) {
+      setPartialPaymentError(err.message);
     } finally {
       setProcessingPayment(null);
     }
@@ -988,26 +1146,62 @@ export function PaymentByClass({ onPaymentSuccess }: PaymentByClassProps) {
                             
                             return (
                               <li key={student._id} className="p-3 hover:bg-amber-50">
-                                <div className="flex justify-between items-center">
+                                <div className="flex justify-between items-start">
                                   <div>
                                     <p className="font-medium text-gray-900">{student.student.name}</p>
                                     <p className="text-xs text-gray-500">ID: {student.student.sid}</p>
                                     <p className="text-xs text-gray-600 mt-1">
                                       Method: {studentDetail?.paymentMethod || 'Cash/Invoice'}
                                     </p>
-                                  </div>
-                                  <button
-                                    onClick={() => handleMarkAsPaid(student, selectedClass)}
-                                    disabled={processingPayment === `${student.student.sid}-${selectedClass.classId}`}
-                                    className="ml-2 inline-flex items-center px-2 py-1 text-xs bg-green-100 text-green-700 rounded hover:bg-green-200"
-                                  >
-                                    {processingPayment === `${student.student.sid}-${selectedClass.classId}` ? (
-                                      <div className="h-3 w-3 border-2 border-green-500 rounded-full border-t-transparent animate-spin mr-1"></div>
-                                    ) : (
-                                      <CheckCircleIcon className="h-3 w-3 mr-1" />
+                                    
+                                    {/* Display partial payment information if available */}
+                                    {paymentStatus[student.student.sid]?.partialPayments && 
+                                      paymentStatus[student.student.sid]?.partialPayments!.length > 0 && (
+                                      <div className="mt-2 p-1 bg-amber-50 border border-amber-200 rounded-sm">
+                                        <p className="text-xs font-medium text-amber-700">
+                                          Partial payments: 
+                                          <span className="font-bold ml-1">
+                                            £{paymentStatus[student.student.sid]?.partialPayments!.reduce((sum, p) => sum + p.amount, 0).toFixed(2)}
+                                          </span>
+                                        </p>
+                                        <p className="text-xs text-amber-700">
+                                          Remaining: £{paymentStatus[student.student.sid]?.remainingBalance?.toFixed(2)}
+                                        </p>
+                                      </div>
                                     )}
-                                    Mark Paid
-                                  </button>
+                                  </div>
+                                  
+                                  <div className="flex space-x-2">
+                                    <button
+                                      onClick={() => handleMarkAsPaid(student, selectedClass)}
+                                      disabled={processingPayment === `${student.student.sid}-${selectedClass.classId}`}
+                                      className="inline-flex items-center px-2 py-1 text-xs bg-green-100 text-green-700 rounded hover:bg-green-200"
+                                    >
+                                      {processingPayment === `${student.student.sid}-${selectedClass.classId}` ? (
+                                        <div className="h-3 w-3 border-2 border-green-500 rounded-full border-t-transparent animate-spin mr-1"></div>
+                                      ) : (
+                                        <CheckCircleIcon className="h-3 w-3 mr-1" />
+                                      )}
+                                      Mark Paid
+                                    </button>
+                                    <button
+                                      onClick={() => {
+                                        setPartialPaymentStudent(student);
+                                        setShowPartialPaymentModal(true);
+                                        setPartialPaymentAmount('');
+                                        setPartialPaymentError(null);
+                                        triggerVibration();
+                                      }}
+                                      className="inline-flex items-center px-2 py-1 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200"
+                                    >
+                                      {/* Display split payment icon */}
+                                      <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 mr-1" viewBox="0 0 20 20" fill="currentColor">
+                                        <path d="M4 4a2 2 0 00-2 2v1h16V6a2 2 0 00-2-2H4z" />
+                                        <path fillRule="evenodd" d="M18 9H2v5a2 2 0 002 2h12a2 2 0 002-2V9zM4 13a1 1 0 011-1h1a1 1 0 110 2H5a1 1 0 01-1-1zm5-1a1 1 0 100 2h1a1 1 0 100-2H9z" clipRule="evenodd" />
+                                      </svg>
+                                      Partial
+                                    </button>
+                                  </div>
                                 </div>
                               </li>
                             );
@@ -1035,6 +1229,101 @@ export function PaymentByClass({ onPaymentSuccess }: PaymentByClassProps) {
         </div>
       )}
       
+      {/* Partial Payment Modal */}
+      {showPartialPaymentModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6 animate-fadeIn">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-medium text-gray-900">Partial Payment</h3>
+              <button
+                onClick={() => setShowPartialPaymentModal(false)}
+                className="text-gray-400 hover:text-gray-500"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                  <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                </svg>
+              </button>
+            </div>
+            
+            {partialPaymentStudent && selectedClass && (
+              <>
+                <div className="mb-4">
+                  <p className="text-sm font-medium text-gray-700">Student: {partialPaymentStudent.student.name}</p>
+                  <p className="text-sm text-gray-500">ID: {partialPaymentStudent.student.sid}</p>
+                  <p className="text-sm font-medium text-gray-700 mt-2">Class: {selectedClass?.name}</p>
+                  <p className="text-sm text-gray-500">Monthly Fee: £{selectedClass?.monthlyFee}</p>
+                  
+                  {/* Show existing partial payments */}
+                  {paymentStatus[partialPaymentStudent.student.sid]?.partialPayments && 
+                    paymentStatus[partialPaymentStudent.student.sid]?.partialPayments!.length > 0 && (
+                    <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded">
+                      <p className="text-sm font-medium">Previous Partial Payments:</p>
+                      <ul className="mt-1 space-y-1">
+                        {paymentStatus[partialPaymentStudent.student.sid]?.partialPayments!.map((payment, idx) => (
+                          <li key={idx} className="text-xs">
+                            <span className="font-medium">£{payment.amount.toFixed(2)}</span> on {new Date(payment.date).toLocaleDateString()}
+                          </li>
+                        ))}
+                      </ul>
+                      <p className="mt-2 text-sm font-medium text-blue-800">
+                        Total Paid: £{paymentStatus[partialPaymentStudent.student.sid]?.partialPayments!
+                          .reduce((sum, p) => sum + p.amount, 0)
+                          .toFixed(2)}
+                      </p>
+                      <p className="text-sm font-medium text-blue-800">
+                        Remaining: £{paymentStatus[partialPaymentStudent.student.sid]?.remainingBalance?.toFixed(2)}
+                      </p>
+                    </div>
+                  )}
+                </div>
+                
+                <div className="mb-5">
+                  <label htmlFor="partialAmount" className="block text-sm font-medium text-gray-700 mb-1">
+                    Payment Amount (£)
+                  </label>
+                  <input
+                    type="number"
+                    id="partialAmount"
+                    placeholder={`Max: £${
+                      (paymentStatus[partialPaymentStudent.student.sid]?.remainingBalance || selectedClass.monthlyFee).toFixed(2)
+                    }`}
+                    step="0.01"
+                    min="0.01"
+                    max={paymentStatus[partialPaymentStudent.student.sid]?.remainingBalance || selectedClass?.monthlyFee}
+                    className="block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                    value={partialPaymentAmount}
+                    onChange={(e) => setPartialPaymentAmount(e.target.value)}
+                  />
+                  {partialPaymentError && (
+                    <p className="mt-1 text-xs text-red-600">{partialPaymentError}</p>
+                  )}
+                </div>
+                
+                <div className="flex justify-end space-x-3">
+                  <button
+                    onClick={() => setShowPartialPaymentModal(false)}
+                    className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-md"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handlePartialPayment}
+                    className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-md"
+                    disabled={processingPayment === `${partialPaymentStudent.student.sid}-${selectedClass?.classId}`}
+                  >
+                    {processingPayment === `${partialPaymentStudent.student.sid}-${selectedClass?.classId}` ? (
+                      <div className="h-4 w-4 border-2 border-white rounded-full border-t-transparent animate-spin mx-auto"></div>
+                    ) : (
+                      'Submit Payment'
+                    )}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Floating action button for mobile */}
       <button 
         onClick={handleRefresh}
