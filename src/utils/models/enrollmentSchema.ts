@@ -75,12 +75,12 @@ const enrollmentSchema = new Schema<IEnrollment>(
   { timestamps: true }
 );
 
-// Create compound index for student-class combination
-enrollmentSchema.index({ 'student.sid': 1, 'class.classId': 1 }, { unique: true });
-
-// Add indexes for common queries
-enrollmentSchema.index({ status: 1 });
-enrollmentSchema.index({ enrollmentDate: 1 });
+// Add indexes for efficient querying
+enrollmentSchema.index({ 'student.sid': 1 }); // Index for student ID
+enrollmentSchema.index({ 'class.classId': 1 }); // Index for class ID
+enrollmentSchema.index({ 'student.sid': 1, 'class.classId': 1 }, { unique: true }); // Compound index for student and class (unique)
+enrollmentSchema.index({ status: 1 }); // Index for enrollment status
+enrollmentSchema.index({ enrollmentDate: 1 }); // Index for enrollment date
 
 // Check if model exists before creating
 const Enrollment = mongoose.models.Enrollment || mongoose.model<IEnrollment>('Enrollment', enrollmentSchema);

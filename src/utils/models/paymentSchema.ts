@@ -76,8 +76,13 @@ const paymentSchema = new Schema<IPayment>(
   { timestamps: true }
 );
 
-// Compound index for efficient querying
-paymentSchema.index({ 'student.sid': 1, academicYear: 1, month: 1, 'class.classId': 1 }, { unique: true });
+// Add indexes for efficient querying
+paymentSchema.index({ 'student.sid': 1 }); // Index for student ID
+paymentSchema.index({ 'class.classId': 1 }); // Index for class ID
+paymentSchema.index({ academicYear: 1, month: 1 }); // Compound index for academic year and month
+paymentSchema.index({ 'student.sid': 1, academicYear: 1, month: 1 }); // Compound index for student, year, and month
+paymentSchema.index({ status: 1 }); // Index for payment status
+paymentSchema.index({ dueDate: 1 }); // Index for due date (e.g., overdue payments)
 
 // Check if model exists before creating
 const Payment = mongoose.models.Payment || mongoose.model<IPayment>('Payment', paymentSchema);

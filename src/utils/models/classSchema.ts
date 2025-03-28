@@ -72,12 +72,12 @@ const classSchema = new Schema<IClass>(
 );
 
 // Add indexes for better performance
-classSchema.index({ classId: 1 }); // Primary lookup field
-classSchema.index({ centerId: 1 }); // Frequently filtered by center
-classSchema.index({ grade: 1 }); // Filter by grade
-classSchema.index({ subject: 1 }); // Filter by subject
-classSchema.index({ grade: 1, subject: 1 }); // Compound index for filtering by both
-classSchema.index({ name: 'text', subject: 'text' }); // Text search on name and subject
+classSchema.index({ classId: 1 }); // Index for class ID (unique)
+classSchema.index({ centerId: 1 }); // Index for center ID
+classSchema.index({ grade: 1 }); // Index for grade
+classSchema.index({ subject: 1 }); // Index for subject
+classSchema.index({ grade: 1, subject: 1 }); // Compound index for grade and subject
+classSchema.index({ 'schedule.days': 1 }); // Index for schedule days
 
 // Check if the model is already defined to prevent the "Cannot overwrite model once compiled" error
 const Class = mongoose.models.Class || mongoose.model<IClass>('Class', classSchema);
