@@ -43,6 +43,9 @@ const EnrollmentModal: React.FC<EnrollmentModalProps> = ({ isOpen, onClose, stud
   const [selectedGrade, setSelectedGrade] = useState('');
   const [selectedCenter, setSelectedCenter] = useState('');
   const [centers, setCenters] = useState<Center[]>([]);
+  const [enrollmentDate, setEnrollmentDate] = useState<string>(
+    new Date().toISOString().split('T')[0]
+  );
 
   useEffect(() => {
     if (isOpen) {
@@ -52,6 +55,7 @@ const EnrollmentModal: React.FC<EnrollmentModalProps> = ({ isOpen, onClose, stud
       setSearchTerm('');
       setSelectedGrade('');
       setSelectedCenter('');
+      setEnrollmentDate(new Date().toISOString().split('T')[0]); // Set to today's date
       fetchCentersAndClasses();
     }
   }, [isOpen]);
@@ -161,7 +165,12 @@ const EnrollmentModal: React.FC<EnrollmentModalProps> = ({ isOpen, onClose, stud
       setIsLoading(true);
       setError('');
 
-      const response = await fetch('/api/enrollment', {
+      // Get selected class details to show fee information
+      const selectedClassDetails = classes.find(cls => cls.classId === selectedClassId);
+      const monthlyFee = selectedClassDetails?.monthlyFee || 0;
+
+      // Create the enrollment with the specified enrollment date
+      const enrollmentResponse = await fetch('/api/enrollment', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -171,18 +180,78 @@ const EnrollmentModal: React.FC<EnrollmentModalProps> = ({ isOpen, onClose, stud
             _id: student?._id,
             sid: student?.sid 
           }, 
-          class: { classId: selectedClassId }
+          class: { classId: selectedClassId },
+          startDate: enrollmentDate // Include the enrollment date
         }),
       });
 
-      if (!response.ok) {
-        const errorData = await response.json();
+      if (!enrollmentResponse.ok) {
+        const errorData = await enrollmentResponse.json();
         throw new Error(errorData.error || 'Failed to enroll student');
       }
 
-      const updatedStudent = await response.json();
-      onEnrollSuccess(updatedStudent);
-      onClose();
+      const enrollmentData = await enrollmentResponse.json();
+      
+      // Now create a prorated payment record for the current month
+      const currentDate = new Date(enrollmentDate);
+      const currentMonth = currentDate.getMonth() + 1; // 1-based month
+      const currentYear = currentDate.getFullYear();
+      
+      const paymentResponse = await fetch('/api/payment', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          studentId: student?.sid,
+          classId: selectedClassId,
+          academicYear: currentYear,
+          month: currentMonth,
+          notes: `Auto-generated payment for enrollment on ${enrollmentDate}`
+        }),
+      });
+      
+      if (!paymentResponse.ok) {
+        // If payment creation fails, log the error but don't block enrollment
+        console.error('Failed to create prorated payment record', await paymentResponse.json());
+        // Still continue with enrollment success
+        onEnrollSuccess(enrollmentData);
+        onClose();
+      } else {
+        const paymentData = await paymentResponse.json();
+        console.log('Prorated payment created:', paymentData);
+        
+        // Calculate remaining balance if prorated
+        const proratedAmount = paymentData.payment?.amount || monthlyFee;
+        const isProrated = proratedAmount < monthlyFee;
+        
+        if (isProrated) {
+          const remainingBalance = monthlyFee - proratedAmount;
+          const percentPaid = Math.round((proratedAmount/monthlyFee) * 100);
+          
+          // Create a custom success message with prorated payment info
+          const successMessage = {
+            ...enrollmentData,
+            message: `${student?.name} has been successfully enrolled in ${selectedClassDetails?.name}. 
+              A prorated payment of £${proratedAmount.toFixed(2)} has been created 
+              (${percentPaid}% of the full £${monthlyFee} fee).
+              Remaining balance: £${remainingBalance.toFixed(2)}.`
+          };
+          
+          onEnrollSuccess(successMessage);
+          onClose();
+        } else {
+          // Full payment required
+          const successMessage = {
+            ...enrollmentData,
+            message: `${student?.name} has been successfully enrolled in ${selectedClassDetails?.name}. 
+              Full payment of £${monthlyFee} is required.`
+          };
+          
+          onEnrollSuccess(successMessage);
+          onClose();
+        }
+      }
     } catch (err: any) {
       setError(err.message || 'An error occurred while enrolling the student');
     } finally {
@@ -200,6 +269,23 @@ const EnrollmentModal: React.FC<EnrollmentModalProps> = ({ isOpen, onClose, stud
         </div>
         <div className="p-4">
           {error && <div className="text-red-500 mb-4">{error}</div>}
+
+          {/* Enrollment Date Field */}
+          <div className="mb-4">
+            <label htmlFor="enrollmentDate" className="block text-sm font-medium text-gray-700 mb-1">
+              Enrollment Date
+            </label>
+            <input
+              type="date"
+              id="enrollmentDate"
+              value={enrollmentDate}
+              onChange={(e) => setEnrollmentDate(e.target.value)}
+              className="border rounded-md px-3 py-2 w-full"
+            />
+            <p className="mt-1 text-xs text-gray-500">
+              Payment will be prorated based on this enrollment date
+            </p>
+          </div>
 
           {/* Search and Filters */}
           <div className="mb-4 grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -236,7 +322,7 @@ const EnrollmentModal: React.FC<EnrollmentModalProps> = ({ isOpen, onClose, stud
             </select>
           </div>
 
-          {/* Class List */}
+          {/* Class List with Fees */}
           <div className="max-h-64 overflow-y-auto border rounded-md">
             {filteredClasses.length > 0 ? (
               <ul>
@@ -248,11 +334,15 @@ const EnrollmentModal: React.FC<EnrollmentModalProps> = ({ isOpen, onClose, stud
                     } hover:bg-blue-50`}
                     onClick={() => setSelectedClassId(cls.classId)}
                   >
-                    <div className="flex justify-between">
-                      <span>
-                        {cls.name} (Grade {cls.grade})
-                      </span>
-                      <span className="text-gray-500">{cls.centerName}</span>
+                    <div className="flex justify-between items-center">
+                      <div>
+                        <span className="font-medium">{cls.name}</span>
+                        <span className="ml-2 text-sm text-gray-600">(Grade {cls.grade})</span>
+                      </div>
+                      <div className="text-right">
+                        <span className="text-gray-500 mr-2">{cls.centerName}</span>
+                        <span className="font-semibold">£{cls.monthlyFee}/month</span>
+                      </div>
                     </div>
                   </li>
                 ))}
@@ -261,6 +351,14 @@ const EnrollmentModal: React.FC<EnrollmentModalProps> = ({ isOpen, onClose, stud
               <div className="p-4 text-gray-500">No classes found</div>
             )}
           </div>
+          
+          {selectedClassId && (
+            <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-md text-sm">
+              <p>
+                <span className="font-medium">Note:</span> A prorated payment record will be automatically created for the current month based on the enrollment date.
+              </p>
+            </div>
+          )}
         </div>
         <div className="p-4 border-t flex justify-end space-x-2">
           <button
@@ -272,7 +370,7 @@ const EnrollmentModal: React.FC<EnrollmentModalProps> = ({ isOpen, onClose, stud
           <button
             onClick={handleEnroll}
             disabled={isLoading}
-            className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+            className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-blue-300"
           >
             {isLoading ? 'Enrolling...' : 'Enroll'}
           </button>

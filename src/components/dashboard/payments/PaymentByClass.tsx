@@ -442,17 +442,23 @@ export function PaymentByClass({ onPaymentSuccess }: PaymentByClassProps) {
       setError(null);
       
       const currentDate = new Date();
-      const currentMonth = currentDate.getMonth() + 1; // 1-indexed
-      const currentYear = currentDate.getFullYear();
+      const currentMonth = selectedMonth; // Use selected month instead of current month
+      const currentYear = selectedYear; // Use selected year instead of current year
       
       // First check if payment record exists
       const checkResponse = await fetch(`/api/payment?studentId=${student.student.sid}&classId=${classObj.classId}&year=${currentYear}&month=${currentMonth}`);
       const checkData = await checkResponse.json();
       
       let paymentId;
+      let proratedAmount = classObj.monthlyFee; // Default to full fee
       
       // Create payment if it doesn't exist
       if (!checkData.payments || checkData.payments.length === 0) {
+        // Get enrollment date to calculate prorated amount
+        const enrollmentResponse = await fetch(`/api/enrollment?studentId=${student.student.sid}&classId=${classObj.classId}&status=active`);
+        const enrollmentData = await enrollmentResponse.json();
+        
+        // Create payment with enrollment date information
         const createResponse = await fetch('/api/payment', {
           method: 'POST',
           headers: {
@@ -474,11 +480,21 @@ export function PaymentByClass({ onPaymentSuccess }: PaymentByClassProps) {
         }
         
         paymentId = createData.payment._id;
+        
+        // Get the prorated amount if calculated by the API
+        if (createData.payment && typeof createData.payment.amount === 'number') {
+          proratedAmount = createData.payment.amount;
+        }
       } else {
         paymentId = checkData.payments[0]._id;
+        
+        // Use existing prorated amount if available
+        if (checkData.payments[0].amount) {
+          proratedAmount = checkData.payments[0].amount;
+        }
       }
       
-      // Mark as paid
+      // Mark as paid with the correct amount (prorated if applicable)
       const response = await fetch('/api/payment', {
         method: 'PATCH',
         headers: {
@@ -488,7 +504,7 @@ export function PaymentByClass({ onPaymentSuccess }: PaymentByClassProps) {
           _id: paymentId,
           status: 'paid',
           paidDate: new Date().toISOString(),
-          amount: classObj.monthlyFee,
+          amount: proratedAmount, // Use prorated amount instead of full fee
           paymentMethod: studentDetails[student.student.sid]?.paymentMethod || 'Cash',
         }),
       });
@@ -506,12 +522,17 @@ export function PaymentByClass({ onPaymentSuccess }: PaymentByClassProps) {
           studentId: student.student.sid,
           paid: true,
           paymentId: paymentId,
-          amount: classObj.monthlyFee,
+          amount: proratedAmount, // Use prorated amount
           paidDate: new Date().toISOString()
         }
       }));
       
-      onPaymentSuccess(`Payment for ${student.student.name} in ${classObj.name} marked as paid!`);
+      // Include prorated information in success message if applicable
+      const successMessage = proratedAmount < classObj.monthlyFee
+        ? `Payment for ${student.student.name} marked as paid! (Prorated: £${proratedAmount.toFixed(2)})`
+        : `Payment for ${student.student.name} marked as paid!`;
+        
+      onPaymentSuccess(successMessage);
     } catch (err: any) {
       setError(err.message);
     } finally {
