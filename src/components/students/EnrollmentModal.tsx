@@ -207,7 +207,8 @@ const EnrollmentModal: React.FC<EnrollmentModalProps> = ({ isOpen, onClose, stud
           classId: selectedClassId,
           academicYear: currentYear,
           month: currentMonth,
-          notes: `Auto-generated payment for enrollment on ${enrollmentDate}`
+          notes: `Auto-generated payment for enrollment on ${enrollmentDate}`,
+          useSimpleProration: true // Add this flag to use simple proportional proration
         }),
       });
       
@@ -225,27 +226,76 @@ const EnrollmentModal: React.FC<EnrollmentModalProps> = ({ isOpen, onClose, stud
         const proratedAmount = paymentData.payment?.amount || monthlyFee;
         const isProrated = proratedAmount < monthlyFee;
         
-        if (isProrated) {
-          const remainingBalance = monthlyFee - proratedAmount;
-          const percentPaid = Math.round((proratedAmount/monthlyFee) * 100);
+        if (isProrated || paymentData.payment?.amount < monthlyFee) {
+          // Get enrollment week information
+          const enrollDate = new Date(enrollmentDate);
+          const monthStartDate = new Date(currentYear, currentMonth - 1, 1);
+          const monthEndDate = new Date(currentYear, currentMonth, 0);
+          const daysInMonth = monthEndDate.getDate();
+          const weeksInMonth = Math.ceil(daysInMonth / 7);
           
-          // Create a custom success message with prorated payment info
+          const dayOfMonth = enrollDate.getDate();
+          const enrollmentWeek = Math.ceil(dayOfMonth / 7);
+          
+          // Calculate remaining weeks (including enrollment week)
+          const remainingWeeks = weeksInMonth - enrollmentWeek + 1;
+          
+          // Calculate weekly rate
+          const weeklyRate = monthlyFee / weeksInMonth;
+          
+          // Calculate prorated amount based on remaining weeks
+          const calculatedAmount = remainingWeeks * weeklyRate;
+          const displayAmount = Math.round(calculatedAmount); // Round to whole number
+          
+          // If our calculation doesn't match the API's, update the payment with our calculated amount
+          if (Math.abs(displayAmount - proratedAmount) > 0.1) {
+            try {
+              // Update the payment with our calculated amount
+              await fetch('/api/payment', {
+                method: 'PATCH',
+                headers: {
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                  _id: paymentData.payment._id,
+                  amount: displayAmount, 
+                  notes: `Auto-generated payment for enrollment on ${enrollmentDate}. Weekly proration: ${remainingWeeks}/${weeksInMonth} weeks.`
+                }),
+              });
+            } catch (err) {
+              console.error('Failed to update payment amount', err);
+            }
+          }
+          
+          const percentPaid = Math.round((displayAmount/monthlyFee) * 100);
+          
+          // Create a custom success message with detailed prorated payment info
           const successMessage = {
             ...enrollmentData,
-            message: `${student?.name} has been successfully enrolled in ${selectedClassDetails?.name}. 
-              A prorated payment of £${proratedAmount.toFixed(2)} has been created 
-              (${percentPaid}% of the full £${monthlyFee} fee).
-              Remaining balance: £${remainingBalance.toFixed(2)}.`
+            message: `${student?.name} has been successfully enrolled in ${selectedClassDetails?.name}.
+
+PAYMENT DETAILS:
+• Joined in week ${enrollmentWeek} of ${weeksInMonth}
+• Paying for ${remainingWeeks} of ${weeksInMonth} weeks
+• Full monthly fee: £${monthlyFee}
+• Prorated amount: £${displayAmount} (${percentPaid}% of full fee)
+
+A payment record has been automatically created.`
           };
           
           onEnrollSuccess(successMessage);
           onClose();
         } else {
-          // Full payment required
+          // Full payment required (enrolled in first week)
           const successMessage = {
             ...enrollmentData,
-            message: `${student?.name} has been successfully enrolled in ${selectedClassDetails?.name}. 
-              Full payment of £${monthlyFee} is required.`
+            message: `${student?.name} has been successfully enrolled in ${selectedClassDetails?.name}.
+
+PAYMENT DETAILS:
+• Full monthly fee: £${monthlyFee.toFixed(2)}
+• Enrolled in first week, so full payment is required.
+
+A payment record has been automatically created.`
           };
           
           onEnrollSuccess(successMessage);

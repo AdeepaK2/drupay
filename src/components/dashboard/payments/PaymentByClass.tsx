@@ -47,6 +47,7 @@ interface PaymentStatus {
   paid: boolean;
   paymentId?: string;
   amount?: number;
+  proratedAmount?: number; // Added field for prorated amount
   paidDate?: string;
   partialPayments?: {
     amount: number;
@@ -54,6 +55,8 @@ interface PaymentStatus {
     paymentId: string;
   }[];
   remainingBalance?: number;
+  isProrated?: boolean; // Flag to indicate if amount is prorated
+  enrollmentDate?: string; // Store enrollment date
 }
 
 interface PaymentByClassProps {
@@ -334,19 +337,34 @@ export function PaymentByClass({ onPaymentSuccess }: PaymentByClassProps) {
               const totalPaid = partialPayments.reduce((sum: number, p: any) => sum + p.amount, 0);
               const remainingBalance = selectedClass?.monthlyFee ? (selectedClass.monthlyFee - totalPaid) : 0;
               
+              // Check if this is a prorated amount
+              const isProrated = latestPayment.amount !== selectedClass?.monthlyFee;
+              
               newPaymentStatus[enrollment.student.sid] = {
                 studentId: enrollment.student.sid,
                 paid: latestPayment.status === 'paid' || remainingBalance <= 0,
                 paymentId: latestPayment._id,
                 amount: latestPayment.amount,
+                proratedAmount: isProrated ? latestPayment.amount : undefined,
                 paidDate: latestPayment.paidDate,
                 partialPayments: partialPayments.length > 0 ? partialPayments : undefined,
-                remainingBalance: partialPayments.length > 0 ? remainingBalance : undefined
+                remainingBalance: partialPayments.length > 0 ? remainingBalance : undefined,
+                isProrated: isProrated,
+                enrollmentDate: enrollment.enrollmentDate
               };
             } else {
+              // No payment record exists yet
+              // Calculate what the prorated amount would be if enrolled mid-month
+              const enrollmentDate = new Date(enrollment.enrollmentDate);
+              const monthStart = new Date(selectedYear, selectedMonth - 1, 1);
+              const monthEnd = new Date(selectedYear, selectedMonth, 0);
+              const isProrated = enrollmentDate > monthStart && enrollmentDate <= monthEnd;
+              
               newPaymentStatus[enrollment.student.sid] = {
                 studentId: enrollment.student.sid,
-                paid: false
+                paid: false,
+                isProrated: isProrated,
+                enrollmentDate: enrollment.enrollmentDate
               };
             }
           }
@@ -441,24 +459,14 @@ export function PaymentByClass({ onPaymentSuccess }: PaymentByClassProps) {
       triggerVibration();
       setError(null);
       
-      const currentDate = new Date();
-      const currentMonth = selectedMonth; // Use selected month instead of current month
-      const currentYear = selectedYear; // Use selected year instead of current year
-      
       // First check if payment record exists
-      const checkResponse = await fetch(`/api/payment?studentId=${student.student.sid}&classId=${classObj.classId}&year=${currentYear}&month=${currentMonth}`);
+      const checkResponse = await fetch(`/api/payment?studentId=${student.student.sid}&classId=${classObj.classId}&year=${selectedYear}&month=${selectedMonth}`);
       const checkData = await checkResponse.json();
       
-      let paymentId;
-      let proratedAmount = classObj.monthlyFee; // Default to full fee
+      let paymentId: string;
       
       // Create payment if it doesn't exist
       if (!checkData.payments || checkData.payments.length === 0) {
-        // Get enrollment date to calculate prorated amount
-        const enrollmentResponse = await fetch(`/api/enrollment?studentId=${student.student.sid}&classId=${classObj.classId}&status=active`);
-        const enrollmentData = await enrollmentResponse.json();
-        
-        // Create payment with enrollment date information
         const createResponse = await fetch('/api/payment', {
           method: 'POST',
           headers: {
@@ -467,8 +475,9 @@ export function PaymentByClass({ onPaymentSuccess }: PaymentByClassProps) {
           body: JSON.stringify({
             studentId: student.student.sid,
             classId: classObj.classId,
-            academicYear: currentYear,
-            month: currentMonth,
+            academicYear: selectedYear,
+            month: selectedMonth,
+            useSimpleProration: true, // Use simple proration for better user understanding
             notes: 'Created by class payment page'
           }),
         });
@@ -481,58 +490,87 @@ export function PaymentByClass({ onPaymentSuccess }: PaymentByClassProps) {
         
         paymentId = createData.payment._id;
         
-        // Get the prorated amount if calculated by the API
-        if (createData.payment && typeof createData.payment.amount === 'number') {
-          proratedAmount = createData.payment.amount;
+        // Update with the prorated amount
+        const proratedAmount = createData.payment.amount;
+        
+        // Mark as paid
+        const response = await fetch('/api/payment', {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            _id: paymentId,
+            status: 'paid',
+            paidDate: new Date().toISOString(),
+            paymentMethod: studentDetails[student.student.sid]?.paymentMethod || 'Cash',
+          }),
+        });
+        
+        const data = await response.json();
+        
+        if (!response.ok) {
+          throw new Error(data.error || 'Failed to process payment');
         }
+        
+        // Update payment status locally
+        setPaymentStatus(prev => ({
+          ...prev,
+          [student.student.sid]: {
+            studentId: student.student.sid,
+            paid: true,
+            paymentId: paymentId,
+            amount: proratedAmount,
+            proratedAmount: proratedAmount !== classObj.monthlyFee ? proratedAmount : undefined,
+            paidDate: new Date().toISOString(),
+            isProrated: proratedAmount !== classObj.monthlyFee,
+            enrollmentDate: student.enrollmentDate
+          }
+        }));
+        
+        onPaymentSuccess(`Payment of £${proratedAmount} for ${student.student.name} marked as paid!`);
       } else {
+        // If payment record already exists
         paymentId = checkData.payments[0]._id;
+        const existingAmount = checkData.payments[0].amount || classObj.monthlyFee;
         
-        // Use existing prorated amount if available
-        if (checkData.payments[0].amount) {
-          proratedAmount = checkData.payments[0].amount;
-        }
-      }
-      
-      // Mark as paid with the correct amount (prorated if applicable)
-      const response = await fetch('/api/payment', {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          _id: paymentId,
-          status: 'paid',
-          paidDate: new Date().toISOString(),
-          amount: proratedAmount, // Use prorated amount instead of full fee
-          paymentMethod: studentDetails[student.student.sid]?.paymentMethod || 'Cash',
-        }),
-      });
-      
-      const data = await response.json();
-      
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to process payment');
-      }
-      
-      // Update payment status locally
-      setPaymentStatus(prev => ({
-        ...prev,
-        [student.student.sid]: {
-          studentId: student.student.sid,
-          paid: true,
-          paymentId: paymentId,
-          amount: proratedAmount, // Use prorated amount
-          paidDate: new Date().toISOString()
-        }
-      }));
-      
-      // Include prorated information in success message if applicable
-      const successMessage = proratedAmount < classObj.monthlyFee
-        ? `Payment for ${student.student.name} marked as paid! (Prorated: £${proratedAmount.toFixed(2)})`
-        : `Payment for ${student.student.name} marked as paid!`;
+        // Mark as paid
+        const response = await fetch('/api/payment', {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            _id: paymentId,
+            status: 'paid',
+            paidDate: new Date().toISOString(),
+            paymentMethod: studentDetails[student.student.sid]?.paymentMethod || 'Cash',
+          }),
+        });
         
-      onPaymentSuccess(successMessage);
+        const data = await response.json();
+        
+        if (!response.ok) {
+          throw new Error(data.error || 'Failed to process payment');
+        }
+        
+        // Update payment status locally
+        setPaymentStatus(prev => ({
+          ...prev,
+          [student.student.sid]: {
+            studentId: student.student.sid,
+            paid: true,
+            paymentId: paymentId,
+            amount: existingAmount,
+            proratedAmount: existingAmount !== classObj.monthlyFee ? existingAmount : undefined,
+            paidDate: new Date().toISOString(),
+            isProrated: existingAmount !== classObj.monthlyFee,
+            enrollmentDate: student.enrollmentDate
+          }
+        }));
+        
+        onPaymentSuccess(`Payment for ${student.student.name} in ${classObj.name} marked as paid!`);
+      }
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -1164,6 +1202,15 @@ export function PaymentByClass({ onPaymentSuccess }: PaymentByClassProps) {
                           .filter(s => !paymentStatus[s.student.sid]?.paid)
                           .map(student => {
                             const studentDetail = studentDetails[student.student.sid];
+                            const paymentInfo = paymentStatus[student.student.sid];
+                            const enrollmentDate = paymentInfo?.enrollmentDate 
+                              ? new Date(paymentInfo.enrollmentDate) 
+                              : new Date(student.enrollmentDate);
+                            
+                            // Check if enrolled mid-month for this selected month/year
+                            const monthStart = new Date(selectedYear, selectedMonth - 1, 1);
+                            const monthEnd = new Date(selectedYear, selectedMonth, 0);
+                            const isMidMonthEnrollment = enrollmentDate >= monthStart && enrollmentDate <= monthEnd;
                             
                             return (
                               <li key={student._id} className="p-3 hover:bg-amber-50">
@@ -1175,18 +1222,37 @@ export function PaymentByClass({ onPaymentSuccess }: PaymentByClassProps) {
                                       Method: {studentDetail?.paymentMethod || 'Cash/Invoice'}
                                     </p>
                                     
+                                    {/* Display mid-month enrollment info */}
+                                    {isMidMonthEnrollment && (
+                                      <div className="mt-1 px-2 py-1 bg-purple-50 border border-purple-200 rounded text-xs">
+                                        <span className="text-purple-700">
+                                          Enrolled mid-month: {enrollmentDate.toLocaleDateString()}
+                                        </span>
+                                      </div>
+                                    )}
+                                    
+                                    {/* Show prorated amount if available */}
+                                    {paymentInfo?.proratedAmount !== undefined && 
+                                     paymentInfo.proratedAmount !== selectedClass?.monthlyFee && (
+                                      <div className="mt-1 px-2 py-1 bg-indigo-50 border border-indigo-200 rounded text-xs">
+                                        <span className="text-indigo-700 font-medium">
+                                          Prorated: £{paymentInfo.proratedAmount.toFixed(2)}
+                                        </span>
+                                      </div>
+                                    )}
+                                    
                                     {/* Display partial payment information if available */}
-                                    {paymentStatus[student.student.sid]?.partialPayments && 
-                                      paymentStatus[student.student.sid]?.partialPayments!.length > 0 && (
+                                    {paymentInfo?.partialPayments && 
+                                      paymentInfo.partialPayments.length > 0 && (
                                       <div className="mt-2 p-1 bg-amber-50 border border-amber-200 rounded-sm">
                                         <p className="text-xs font-medium text-amber-700">
                                           Partial payments: 
                                           <span className="font-bold ml-1">
-                                            £{paymentStatus[student.student.sid]?.partialPayments!.reduce((sum, p) => sum + p.amount, 0).toFixed(2)}
+                                            £{paymentInfo.partialPayments.reduce((sum, p) => sum + p.amount, 0).toFixed(2)}
                                           </span>
                                         </p>
                                         <p className="text-xs text-amber-700">
-                                          Remaining: £{paymentStatus[student.student.sid]?.remainingBalance?.toFixed(2)}
+                                          Remaining: £{paymentInfo.remainingBalance?.toFixed(2)}
                                         </p>
                                       </div>
                                     )}
