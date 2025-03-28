@@ -581,18 +581,14 @@ export function PaymentByClass({ onPaymentSuccess }: PaymentByClassProps) {
       return;
     }
     
-    if (amount >= selectedClass.monthlyFee) {
-      setPartialPaymentError(`Amount must be less than the full fee (£${selectedClass.monthlyFee})`);
-      return;
-    }
-    
     // Calculate remaining balance
     const studentId = partialPaymentStudent.student.sid;
     const existingPaymentStatus = paymentStatus[studentId];
     const totalPaidSoFar = existingPaymentStatus?.partialPayments?.reduce((total, payment) => total + payment.amount, 0) || 0;
     const newTotalPaid = totalPaidSoFar + amount;
     
-    if (newTotalPaid >= selectedClass.monthlyFee) {
+    // FIXED: Changed comparison from >= to > to allow exact payment of remaining balance
+    if (newTotalPaid > selectedClass.monthlyFee) {
       setPartialPaymentError(`This payment would exceed the full fee amount. Maximum payment: £${(selectedClass.monthlyFee - totalPaidSoFar).toFixed(2)}`);
       return;
     }
@@ -636,8 +632,11 @@ export function PaymentByClass({ onPaymentSuccess }: PaymentByClassProps) {
         paymentId = checkData.payments[0]._id;
       }
       
-      // Make partial payment - use status 'pending' since 'partial' isn't valid
-      // Use notes field to indicate it's a partial payment
+      // Calculate if this payment completes the full amount
+      const remainingBalance = selectedClass.monthlyFee - newTotalPaid;
+      const isPaidInFull = remainingBalance <= 0;
+      
+      // FIXED: Change status to 'paid' if this payment completes the full amount
       const response = await fetch('/api/payment', {
         method: 'PATCH',
         headers: {
@@ -645,11 +644,14 @@ export function PaymentByClass({ onPaymentSuccess }: PaymentByClassProps) {
         },
         body: JSON.stringify({
           _id: paymentId,
-          status: 'pending', // Keep as pending until fully paid
-          amount, // Record the partial amount
-          paidDate: new Date().toISOString(),
+          // Mark as paid if full amount is reached
+          status: isPaidInFull ? 'paid' : 'pending', 
+          amount: selectedClass.monthlyFee, // Always store the full fee amount
+          paidDate: isPaidInFull ? new Date().toISOString() : undefined,
           paymentMethod: studentDetails[studentId]?.paymentMethod || 'Cash',
-          notes: `Partial payment of £${amount} received. Total paid so far: £${newTotalPaid.toFixed(2)}. Remaining: £${(selectedClass.monthlyFee - newTotalPaid).toFixed(2)}`
+          notes: isPaidInFull 
+            ? `Final payment of £${amount} received. Total paid: £${selectedClass.monthlyFee.toFixed(2)}.` 
+            : `Partial payment of £${amount} received. Total paid so far: £${newTotalPaid.toFixed(2)}. Remaining: £${remainingBalance.toFixed(2)}`
         }),
       });
       
@@ -660,9 +662,6 @@ export function PaymentByClass({ onPaymentSuccess }: PaymentByClassProps) {
       }
       
       // Update payment status locally
-      const remainingBalance = selectedClass.monthlyFee - newTotalPaid;
-      const isPaidInFull = remainingBalance <= 0;
-      
       // Update the existing partial payments or create a new array
       const updatedPartialPayments = [
         ...(existingPaymentStatus?.partialPayments || []),
@@ -688,7 +687,12 @@ export function PaymentByClass({ onPaymentSuccess }: PaymentByClassProps) {
       
       setShowPartialPaymentModal(false);
       setPartialPaymentAmount('');
-      onPaymentSuccess(`Partial payment of £${amount} recorded for ${partialPaymentStudent.student.name}!`);
+      
+      if (isPaidInFull) {
+        onPaymentSuccess(`Payment completed for ${partialPaymentStudent.student.name}! Full amount of £${selectedClass.monthlyFee} received.`);
+      } else {
+        onPaymentSuccess(`Partial payment of £${amount} recorded for ${partialPaymentStudent.student.name}!`);
+      }
     } catch (err: any) {
       setPartialPaymentError(err.message);
     } finally {
