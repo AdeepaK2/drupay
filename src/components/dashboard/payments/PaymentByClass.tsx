@@ -491,6 +491,57 @@ export function PaymentByClass({ onPaymentSuccess }: PaymentByClassProps) {
     }
   };
 
+  const handleUnmarkPayment = async (student: any, classObj: Class) => {
+    const paymentIdentifier = `${student.student.sid}-${classObj.classId}`;
+    try {
+      setProcessingPayment(paymentIdentifier);
+      triggerVibration();
+      setError(null);
+      
+      // Get the payment ID from our local state
+      const paymentId = paymentStatus[student.student.sid]?.paymentId;
+      
+      if (!paymentId) {
+        throw new Error('Cannot find payment record to unmark');
+      }
+      
+      // Update payment status to pending (not unpaid - which isn't valid)
+      const response = await fetch('/api/payment', {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          _id: paymentId,
+          status: 'pending',  // Changed from 'unpaid' to 'pending'
+          paidDate: null
+        }),
+      });
+      
+      const data = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to unmark payment');
+      }
+      
+      // Update payment status locally
+      setPaymentStatus(prev => ({
+        ...prev,
+        [student.student.sid]: {
+          ...prev[student.student.sid],
+          paid: false,
+          paidDate: null
+        }
+      }));
+      
+      onPaymentSuccess(`Payment for ${student.student.name} in ${classObj.name} has been unmarked!`);
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setProcessingPayment(null);
+    }
+  };
+
   // Apply all filters to classes
   const filteredClasses = classes.filter(cls => {
     const matchesSearch = cls.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -856,149 +907,120 @@ export function PaymentByClass({ onPaymentSuccess }: PaymentByClassProps) {
             </div>
           ) : enrolledStudents.length > 0 ? (
             <div className="p-3 md:p-6">
-              {/* Mobile view - cards with improved styling */}
-              <div className="md:hidden space-y-3">
-                {enrolledStudents.map((student) => {
-                  const studentPaymentStatus = paymentStatus[student.student.sid];
-                  const isPaid = studentPaymentStatus?.paid;
-                  const studentDetail = studentDetails[student.student.sid];
-                  
-                  return (
-                    <div 
-                      key={student._id} 
-                      className={`border rounded-lg p-4 ${
-                        isPaid 
-                          ? 'bg-green-50 border-green-200' 
-                          : 'bg-white border-gray-200'
-                      }`}
-                    >
-                      <div className="flex justify-between items-start">
-                        <div>
-                          <h3 className="font-medium text-gray-900">{student.student.name}</h3>
-                          <p className="text-sm text-gray-500">ID: {student.student.sid}</p>
-                          <p className="text-xs text-gray-500 mt-1">
-                            Method: {studentDetail?.paymentMethod || 'Cash/Invoice'}
-                          </p>
-                        </div>
-                        <div>
-                          {isPaid ? (
-                            <span className="inline-flex items-center px-2.5 py-1 rounded-md text-sm font-medium bg-green-100 text-green-800">
-                              <CheckCircleIcon className="mr-1 h-4 w-4" /> Paid
-                            </span>
-                          ) : (
-                            <span className="inline-flex items-center px-2.5 py-1 rounded-md text-sm font-medium bg-yellow-100 text-yellow-800">
-                              <ClockIcon className="mr-1 h-4 w-4" /> Unpaid
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                      
-                      <div className="mt-3">
-                        {!isPaid ? (
-                          <button
-                            onClick={() => handleMarkAsPaid(student, selectedClass)}
-                            disabled={processingPayment === `${student.student.sid}-${selectedClass.classId}`}
-                            className="w-full flex justify-center items-center py-2 px-3 bg-green-600 text-white rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 disabled:opacity-50 text-sm font-medium"
-                          >
-                            {processingPayment === `${student.student.sid}-${selectedClass.classId}` ? (
-                              <>
-                                <div className="h-4 w-4 border-2 border-white rounded-full border-t-transparent animate-spin mr-2"></div>
-                                Processing...
-                              </>
-                            ) : (
-                              <>
-                                <CheckCircleIcon className="h-4 w-4 mr-2" />
-                                Mark as Paid
-                              </>
-                            )}
-                          </button>
-                        ) : (
-                          <div className="text-center text-sm text-green-600 mt-1">
-                            Paid on {new Date(studentPaymentStatus.paidDate!).toLocaleDateString()}
-                          </div>
-                        )}
-                      </div>
+              {/* Split view - Paid vs Unpaid Students */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Paid Students Column */}
+                <div className="border rounded-lg overflow-hidden">
+                  <div className="bg-green-50 p-3 border-b border-green-200">
+                    <div className="flex items-center">
+                      <CheckCircleIcon className="h-5 w-5 text-green-600 mr-2" />
+                      <h3 className="font-medium">Paid Students</h3>
+                      <span className="ml-2 bg-green-100 text-green-800 text-xs font-medium px-2 py-0.5 rounded-full">
+                        {enrolledStudents.filter(s => paymentStatus[s.student.sid]?.paid).length}
+                      </span>
                     </div>
-                  );
-                })}
-              </div>
-              
-              {/* Desktop view - table */}
-              <div className="hidden md:block overflow-x-auto">
-                <table className="min-w-full divide-y divide-gray-200">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        SID
-                      </th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Student Name
-                      </th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Payment Method
-                      </th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Status
-                      </th>
-                      <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Action
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
-                    {enrolledStudents.map((student) => {
-                      const studentPaymentStatus = paymentStatus[student.student.sid];
-                      const isPaid = studentPaymentStatus?.paid;
-                      const studentDetail = studentDetails[student.student.sid];
-                      
-                      return (
-                        <tr key={student._id} className={isPaid ? 'bg-green-50' : ''}>
-                          <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">
-                            {student.student.sid}
-                          </td>
-                          <td className="px-4 py-3 whitespace-nowrap">
-                            <div className="text-sm font-medium text-gray-900">{student.student.name}</div>
-                          </td>
-                          <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">
-                            {studentDetail?.paymentMethod || 'Cash/Invoice'}
-                          </td>
-                          <td className="px-4 py-3 whitespace-nowrap text-sm">
-                            {isPaid ? (
-                              <span className="inline-flex items-center px-2.5 py-0.5 rounded-md text-sm font-medium bg-green-100 text-green-800">
-                                <CheckCircleIcon className="mr-1 h-4 w-4" /> Paid
-                              </span>
-                            ) : (
-                              <span className="inline-flex items-center px-2.5 py-0.5 rounded-md text-sm font-medium bg-yellow-100 text-yellow-800">
-                                <ClockIcon className="mr-1 h-4 w-4" /> Unpaid
-                              </span>
-                            )}
-                          </td>
-                          <td className="px-4 py-3 whitespace-nowrap text-right text-sm font-medium">
-                            {!isPaid && (
-                              <button
-                                onClick={() => handleMarkAsPaid(student, selectedClass)}
-                                disabled={processingPayment === `${student.student.sid}-${selectedClass.classId}`}
-                                className="inline-flex items-center px-3 py-1.5 bg-green-600 text-white rounded hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 disabled:opacity-50"
-                              >
-                                {processingPayment === `${student.student.sid}-${selectedClass.classId}` ? (
-                                  <div className="h-4 w-4 border-2 border-white rounded-full border-t-transparent animate-spin mr-2"></div>
-                                ) : (
-                                  <CheckCircleIcon className="h-4 w-4 mr-1" />
-                                )}
-                                Mark as Paid
-                              </button>
-                            )}
-                            {isPaid && (
-                              <span className="text-green-600">
-                                Paid on {new Date(studentPaymentStatus.paidDate!).toLocaleDateString()}
-                              </span>
-                            )}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+                  </div>
+                  
+                  <div className="max-h-60 overflow-y-auto">
+                    {enrolledStudents.filter(s => paymentStatus[s.student.sid]?.paid).length > 0 ? (
+                      <ul className="divide-y divide-gray-200">
+                        {enrolledStudents
+                          .filter(s => paymentStatus[s.student.sid]?.paid)
+                          .map(student => {
+                            const studentDetail = studentDetails[student.student.sid];
+                            const paymentDate = paymentStatus[student.student.sid]?.paidDate 
+                              ? new Date(paymentStatus[student.student.sid].paidDate!).toLocaleDateString() 
+                              : 'Unknown date';
+                            
+                            return (
+                              <li key={student._id} className="p-3 hover:bg-green-50">
+                                <div className="flex justify-between items-center">
+                                  <div>
+                                    <p className="font-medium text-gray-900">{student.student.name}</p>
+                                    <p className="text-xs text-gray-500">ID: {student.student.sid}</p>
+                                    <p className="text-xs text-gray-600 mt-1">Paid on {paymentDate}</p>
+                                  </div>
+                                  <button
+                                    onClick={() => handleUnmarkPayment(student, selectedClass)}
+                                    disabled={processingPayment === `${student.student.sid}-${selectedClass.classId}`}
+                                    className="ml-2 inline-flex items-center px-2 py-1 text-xs bg-orange-100 text-orange-700 rounded hover:bg-orange-200"
+                                  >
+                                    {processingPayment === `${student.student.sid}-${selectedClass.classId}` ? (
+                                      <div className="h-3 w-3 border-2 border-orange-500 rounded-full border-t-transparent animate-spin mr-1"></div>
+                                    ) : (
+                                      <XMarkIcon className="h-3 w-3 mr-1" />
+                                    )}
+                                    Unmark
+                                  </button>
+                                </div>
+                              </li>
+                            );
+                          })
+                        }
+                      </ul>
+                    ) : (
+                      <div className="p-4 text-center text-gray-500">
+                        <p>No paid students</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+                
+                {/* Unpaid Students Column */}
+                <div className="border rounded-lg overflow-hidden">
+                  <div className="bg-amber-50 p-3 border-b border-amber-200">
+                    <div className="flex items-center">
+                      <ClockIcon className="h-5 w-5 text-amber-600 mr-2" />
+                      <h3 className="font-medium">Unpaid Students</h3>
+                      <span className="ml-2 bg-amber-100 text-amber-800 text-xs font-medium px-2 py-0.5 rounded-full">
+                        {enrolledStudents.filter(s => !paymentStatus[s.student.sid]?.paid).length}
+                      </span>
+                    </div>
+                  </div>
+                  
+                  <div className="max-h-60 overflow-y-auto">
+                    {enrolledStudents.filter(s => !paymentStatus[s.student.sid]?.paid).length > 0 ? (
+                      <ul className="divide-y divide-gray-200">
+                        {enrolledStudents
+                          .filter(s => !paymentStatus[s.student.sid]?.paid)
+                          .map(student => {
+                            const studentDetail = studentDetails[student.student.sid];
+                            
+                            return (
+                              <li key={student._id} className="p-3 hover:bg-amber-50">
+                                <div className="flex justify-between items-center">
+                                  <div>
+                                    <p className="font-medium text-gray-900">{student.student.name}</p>
+                                    <p className="text-xs text-gray-500">ID: {student.student.sid}</p>
+                                    <p className="text-xs text-gray-600 mt-1">
+                                      Method: {studentDetail?.paymentMethod || 'Cash/Invoice'}
+                                    </p>
+                                  </div>
+                                  <button
+                                    onClick={() => handleMarkAsPaid(student, selectedClass)}
+                                    disabled={processingPayment === `${student.student.sid}-${selectedClass.classId}`}
+                                    className="ml-2 inline-flex items-center px-2 py-1 text-xs bg-green-100 text-green-700 rounded hover:bg-green-200"
+                                  >
+                                    {processingPayment === `${student.student.sid}-${selectedClass.classId}` ? (
+                                      <div className="h-3 w-3 border-2 border-green-500 rounded-full border-t-transparent animate-spin mr-1"></div>
+                                    ) : (
+                                      <CheckCircleIcon className="h-3 w-3 mr-1" />
+                                    )}
+                                    Mark Paid
+                                  </button>
+                                </div>
+                              </li>
+                            );
+                          })
+                        }
+                      </ul>
+                    ) : (
+                      <div className="p-4 text-center text-gray-500">
+                        <p>No unpaid students</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
               </div>
             </div>
           ) : (
