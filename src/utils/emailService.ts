@@ -37,3 +37,28 @@ export async function sendOTPEmail(email: string, otp: string, name?: string) {
     return false;
   }
 }
+
+// New function for sending emails to parents
+export async function sendParentEmail(email: string, subject: string, htmlContent: string) {
+  try {
+    const mailOptions = {
+      from: process.env.EMAIL_USER,
+      to: email,
+      subject: subject,
+      html: htmlContent
+    };
+
+    const info = await transporter.sendMail(mailOptions);
+    console.log('Email sent to parent:', info.messageId);
+    return {
+      success: true,
+      messageId: info.messageId
+    };
+  } catch (error) {
+    console.error('Error sending email to parent:', error);
+    return {
+      success: false,
+      error: error
+    };
+  }
+}
