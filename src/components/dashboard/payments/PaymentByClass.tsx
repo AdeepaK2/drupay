@@ -36,8 +36,9 @@ interface Enrollment {
     classId: string;
     name: string;
   };
-  enrollmentDate: string; // Changed from startDate to match your schema
+  enrollmentDate: string;
   status: string;
+  adjustedFee?: number; // Add this property
   createdAt: string;
   updatedAt: string;
 }
@@ -47,7 +48,7 @@ interface PaymentStatus {
   paid: boolean;
   paymentId?: string;
   amount?: number;
-  proratedAmount?: number; // Added field for prorated amount
+  proratedAmount?: number;
   paidDate?: string;
   partialPayments?: {
     amount: number;
@@ -55,8 +56,9 @@ interface PaymentStatus {
     paymentId: string;
   }[];
   remainingBalance?: number;
-  isProrated?: boolean; // Flag to indicate if amount is prorated
-  enrollmentDate?: string; // Store enrollment date
+  isProrated?: boolean;
+  enrollmentDate?: string;
+  adjustedFee?: number; // Add this property
 }
 
 interface PaymentByClassProps {
@@ -321,6 +323,10 @@ export function PaymentByClass({ onPaymentSuccess }: PaymentByClassProps) {
             const data = await response.json();
             const payments = data.payments || [];
             
+            // Get the effective fee for this student (adjusted fee or class fee)
+            const effectiveFee = enrollment.adjustedFee !== undefined ? 
+              enrollment.adjustedFee : selectedClass?.monthlyFee;
+            
             if (payments.length > 0) {
               const latestPayment = payments[0];
               
@@ -335,10 +341,10 @@ export function PaymentByClass({ onPaymentSuccess }: PaymentByClassProps) {
               
               // Calculate total amount paid
               const totalPaid = partialPayments.reduce((sum: number, p: any) => sum + p.amount, 0);
-              const remainingBalance = selectedClass?.monthlyFee ? (selectedClass.monthlyFee - totalPaid) : 0;
+              const remainingBalance = (effectiveFee || 0) - totalPaid;
               
               // Check if this is a prorated amount
-              const isProrated = latestPayment.amount !== selectedClass?.monthlyFee;
+              const isProrated = latestPayment.amount !== effectiveFee;
               
               newPaymentStatus[enrollment.student.sid] = {
                 studentId: enrollment.student.sid,
@@ -350,7 +356,8 @@ export function PaymentByClass({ onPaymentSuccess }: PaymentByClassProps) {
                 partialPayments: partialPayments.length > 0 ? partialPayments : undefined,
                 remainingBalance: partialPayments.length > 0 ? remainingBalance : undefined,
                 isProrated: isProrated,
-                enrollmentDate: enrollment.enrollmentDate
+                enrollmentDate: enrollment.enrollmentDate,
+                adjustedFee: enrollment.adjustedFee // Store adjusted fee in payment status
               };
             } else {
               // No payment record exists yet
@@ -364,7 +371,8 @@ export function PaymentByClass({ onPaymentSuccess }: PaymentByClassProps) {
                 studentId: enrollment.student.sid,
                 paid: false,
                 isProrated: isProrated,
-                enrollmentDate: enrollment.enrollmentDate
+                enrollmentDate: enrollment.enrollmentDate,
+                adjustedFee: enrollment.adjustedFee // Store adjusted fee in payment status
               };
             }
           }
@@ -459,11 +467,16 @@ export function PaymentByClass({ onPaymentSuccess }: PaymentByClassProps) {
       triggerVibration();
       setError(null);
       
+      // Get the effective fee for this student (adjusted fee or class fee)
+      const effectiveFee = paymentStatus[student.student.sid]?.adjustedFee !== undefined ?
+        paymentStatus[student.student.sid].adjustedFee! : classObj.monthlyFee;
+      
       // First check if payment record exists
       const checkResponse = await fetch(`/api/payment?studentId=${student.student.sid}&classId=${classObj.classId}&year=${selectedYear}&month=${selectedMonth}`);
       const checkData = await checkResponse.json();
       
       let paymentId: string;
+      let actualPaymentAmount: number; // Track the actual payment amount
       
       // Create payment if it doesn't exist
       if (!checkData.payments || checkData.payments.length === 0) {
@@ -478,6 +491,7 @@ export function PaymentByClass({ onPaymentSuccess }: PaymentByClassProps) {
             academicYear: selectedYear,
             month: selectedMonth,
             useSimpleProration: true, // Use simple proration for better user understanding
+            adjustedFee: paymentStatus[student.student.sid]?.adjustedFee, // Include adjusted fee info if available
             notes: 'Created by class payment page'
           }),
         });
@@ -490,8 +504,8 @@ export function PaymentByClass({ onPaymentSuccess }: PaymentByClassProps) {
         
         paymentId = createData.payment._id;
         
-        // Update with the prorated amount
-        const proratedAmount = createData.payment.amount;
+        // Store the actual calculated amount from the backend
+        actualPaymentAmount = createData.payment.amount;
         
         // Mark as paid
         const response = await fetch('/api/payment', {
@@ -513,26 +527,28 @@ export function PaymentByClass({ onPaymentSuccess }: PaymentByClassProps) {
           throw new Error(data.error || 'Failed to process payment');
         }
         
-        // Update payment status locally
+        // Update payment status locally using the actual amount from backend calculation
         setPaymentStatus(prev => ({
           ...prev,
           [student.student.sid]: {
             studentId: student.student.sid,
             paid: true,
             paymentId: paymentId,
-            amount: proratedAmount,
-            proratedAmount: proratedAmount !== classObj.monthlyFee ? proratedAmount : undefined,
+            amount: actualPaymentAmount, // Use the actual amount
+            proratedAmount: actualPaymentAmount !== effectiveFee ? actualPaymentAmount : undefined,
             paidDate: new Date().toISOString(),
-            isProrated: proratedAmount !== classObj.monthlyFee,
-            enrollmentDate: student.enrollmentDate
+            isProrated: actualPaymentAmount !== effectiveFee,
+            enrollmentDate: student.enrollmentDate,
+            adjustedFee: paymentStatus[student.student.sid]?.adjustedFee
           }
         }));
         
-        onPaymentSuccess(`Payment of $${proratedAmount} for ${student.student.name} marked as paid!`);
+        // Use the actual amount in the success message
+        onPaymentSuccess(`Payment of $${actualPaymentAmount} for ${student.student.name} marked as paid!`);
       } else {
         // If payment record already exists
-        paymentId = checkData.payments[0]._id;
-        const existingAmount = checkData.payments[0].amount || classObj.monthlyFee;
+        paymentId = checkData.payments[0]._id as string;
+        actualPaymentAmount = checkData.payments[0].amount as number; // Use the existing payment's amount
         
         // Mark as paid
         const response = await fetch('/api/payment', {
@@ -554,22 +570,24 @@ export function PaymentByClass({ onPaymentSuccess }: PaymentByClassProps) {
           throw new Error(data.error || 'Failed to process payment');
         }
         
-        // Update payment status locally
+        // Update payment status locally with the actual amount
         setPaymentStatus(prev => ({
           ...prev,
           [student.student.sid]: {
             studentId: student.student.sid,
             paid: true,
             paymentId: paymentId,
-            amount: existingAmount,
-            proratedAmount: existingAmount !== classObj.monthlyFee ? existingAmount : undefined,
+            amount: actualPaymentAmount, // Use the actual amount from the payment
+            proratedAmount: actualPaymentAmount !== effectiveFee ? actualPaymentAmount : undefined,
             paidDate: new Date().toISOString(),
-            isProrated: existingAmount !== classObj.monthlyFee,
-            enrollmentDate: student.enrollmentDate
+            isProrated: actualPaymentAmount !== effectiveFee,
+            enrollmentDate: student.enrollmentDate,
+            adjustedFee: paymentStatus[student.student.sid]?.adjustedFee
           }
         }));
         
-        onPaymentSuccess(`Payment for ${student.student.name} in ${classObj.name} marked as paid!`);
+        // Use the actual amount in the success message
+        onPaymentSuccess(`Payment of $${actualPaymentAmount} for ${student.student.name} in ${classObj.name} marked as paid!`);
       }
     } catch (err: any) {
       setError(err.message);
@@ -640,15 +658,18 @@ export function PaymentByClass({ onPaymentSuccess }: PaymentByClassProps) {
       return;
     }
     
-    // Calculate remaining balance
     const studentId = partialPaymentStudent.student.sid;
     const existingPaymentStatus = paymentStatus[studentId];
+    
+    // Get the effective fee for this student (adjusted fee or class fee)
+    const effectiveFee = existingPaymentStatus?.adjustedFee !== undefined ?
+      existingPaymentStatus.adjustedFee : selectedClass?.monthlyFee || 0;
+    
     const totalPaidSoFar = existingPaymentStatus?.partialPayments?.reduce((total, payment) => total + payment.amount, 0) || 0;
     const newTotalPaid = totalPaidSoFar + amount;
     
-    // FIXED: Changed comparison from >= to > to allow exact payment of remaining balance
-    if (newTotalPaid > selectedClass.monthlyFee) {
-      setPartialPaymentError(`This payment would exceed the full fee amount. Maximum payment: $${(selectedClass.monthlyFee - totalPaidSoFar).toFixed(2)}`);
+    if (newTotalPaid > effectiveFee) {
+      setPartialPaymentError(`This payment would exceed the full fee amount. Maximum payment: $${(effectiveFee - totalPaidSoFar).toFixed(2)}`);
       return;
     }
     
@@ -692,7 +713,7 @@ export function PaymentByClass({ onPaymentSuccess }: PaymentByClassProps) {
       }
       
       // Calculate if this payment completes the full amount
-      const remainingBalance = selectedClass.monthlyFee - newTotalPaid;
+      const remainingBalance = effectiveFee - newTotalPaid;
       const isPaidInFull = remainingBalance <= 0;
       
       // FIXED: Change status to 'paid' if this payment completes the full amount
@@ -705,11 +726,11 @@ export function PaymentByClass({ onPaymentSuccess }: PaymentByClassProps) {
           _id: paymentId,
           // Mark as paid if full amount is reached
           status: isPaidInFull ? 'paid' : 'pending', 
-          amount: selectedClass.monthlyFee, // Always store the full fee amount
+          amount: effectiveFee, // Always store the full fee amount
           paidDate: isPaidInFull ? new Date().toISOString() : undefined,
           paymentMethod: studentDetails[studentId]?.paymentMethod || 'Cash',
           notes: isPaidInFull 
-            ? `Final payment of $${amount} received. Total paid: $${selectedClass.monthlyFee.toFixed(2)}.` 
+            ? `Final payment of $${amount} received. Total paid: $${effectiveFee.toFixed(2)}.` 
             : `Partial payment of $${amount} received. Total paid so far: $${newTotalPaid.toFixed(2)}. Remaining: $${remainingBalance.toFixed(2)}`
         }),
       });
@@ -748,7 +769,7 @@ export function PaymentByClass({ onPaymentSuccess }: PaymentByClassProps) {
       setPartialPaymentAmount('');
       
       if (isPaidInFull) {
-        onPaymentSuccess(`Payment completed for ${partialPaymentStudent.student.name}! Full amount of $${selectedClass.monthlyFee} received.`);
+        onPaymentSuccess(`Payment completed for ${partialPaymentStudent.student.name}! Full amount of $${effectiveFee} received.`);
       } else {
         onPaymentSuccess(`Partial payment of $${amount} recorded for ${partialPaymentStudent.student.name}!`);
       }
@@ -1256,6 +1277,13 @@ export function PaymentByClass({ onPaymentSuccess }: PaymentByClassProps) {
                                         </p>
                                       </div>
                                     )}
+
+                                    {/* Display adjusted fee if available */}
+                                    {paymentStatus[student.student.sid]?.adjustedFee !== undefined && (
+                                      <div className="mt-1 px-2 py-1 bg-indigo-50 border border-indigo-200 rounded text-xs">
+                                        <span className="font-semibold">Adjusted Fee:</span> ${paymentStatus[student.student.sid].adjustedFee!.toFixed(2)}
+                                      </div>
+                                    )}
                                   </div>
                                   
                                   <div className="flex space-x-2">
@@ -1338,7 +1366,16 @@ export function PaymentByClass({ onPaymentSuccess }: PaymentByClassProps) {
                   <p className="text-sm font-medium text-gray-700">Student: {partialPaymentStudent.student.name}</p>
                   <p className="text-sm text-gray-500">ID: {partialPaymentStudent.student.sid}</p>
                   <p className="text-sm font-medium text-gray-700 mt-2">Class: {selectedClass?.name}</p>
-                  <p className="text-sm text-gray-500">Monthly Fee: ${selectedClass?.monthlyFee}</p>
+                  
+                  {/* Show adjusted fee if available */}
+                  {paymentStatus[partialPaymentStudent.student.sid]?.adjustedFee !== undefined ? (
+                    <div>
+                      <p className="text-sm text-gray-500 line-through">Standard Fee: ${selectedClass?.monthlyFee}</p>
+                      <p className="text-sm text-indigo-700 font-medium">Adjusted Fee: ${paymentStatus[partialPaymentStudent.student.sid].adjustedFee!.toFixed(2)}</p>
+                    </div>
+                  ) : (
+                    <p className="text-sm text-gray-500">Monthly Fee: ${selectedClass?.monthlyFee}</p>
+                  )}
                   
                   {/* Show existing partial payments */}
                   {paymentStatus[partialPaymentStudent.student.sid]?.partialPayments && 

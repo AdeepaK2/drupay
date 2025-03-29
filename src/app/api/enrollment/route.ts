@@ -3,6 +3,7 @@ import connect from '@/utils/db';
 import Enrollment, { EnrollmentStatus } from '@/utils/models/enrollmentSchema';
 import Student from '@/utils/models/studentSchema';
 import Class from '@/utils/models/classSchema';
+import { calculateProratedAmount } from '@/utils/paymentUtils';
 
 // Connect to the database
 connect();
@@ -197,10 +198,7 @@ export async function PATCH(request: NextRequest) {
           // Calculate prorated amount based on new adjustedFee
           let newAmount;
           
-          // Import and use the calculateProratedAmount function
-          const { calculateProratedAmount } = await import('../payment/route');
-          
-          // If payment record already exists, recalculate with the adjusted fee
+          // Use the calculateProratedAmount function
           newAmount = calculateProratedAmount(
             newAdjustedFee ?? originalEnrollment.adjustedFee, // Use the new adjusted fee or fall back to original
             enrollmentDate,
