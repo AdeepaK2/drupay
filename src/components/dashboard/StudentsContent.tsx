@@ -358,7 +358,6 @@ export default function StudentsContent() {
               onChange={handleSortChange}
             >
               <option value="name">Name</option>
-              <option value="grade">Grade</option>
               <option value="createdAt">Date Added</option>
               <option value="sid">ID</option>
             </select>
@@ -405,10 +404,6 @@ export default function StudentsContent() {
                     <div>
                       <span className="text-gray-500">Contact:</span>
                       <p>{student.contactNumber}</p>
-                    </div>
-                    <div>
-                      <span className="text-gray-500">Grade:</span>
-                      <p>{student.grade || 'N/A'}</p>
                     </div>
                   </div>
                   
@@ -482,7 +477,6 @@ export default function StudentsContent() {
                 <tr>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Student</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ID</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Grade</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Email</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Contact</th>
                   <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
@@ -504,9 +498,6 @@ export default function StudentsContent() {
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                         {student.sid}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {student.grade || 'N/A'}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                         {student.email}
@@ -578,7 +569,7 @@ export default function StudentsContent() {
                   ))
                 ) : (
                   <tr>
-                    <td colSpan={6} className="px-6 py-4 text-center text-gray-500">
+                    <td colSpan={5} className="px-6 py-4 text-center text-gray-500">
                       No students found
                     </td>
                   </tr>
@@ -632,7 +623,8 @@ export default function StudentsContent() {
                 <div className="animate-spin rounded-full h-8 w-8 border-2 border-blue-500 border-t-transparent"></div>
                 <p className="ml-2 text-gray-600">Checking student records...</p>
               </div>
-            )}
+            )
+            }
             
             {/* If there are enrollments */}
             {!deletionChecks.checkingEnrollments && deletionChecks.enrollments.length > 0 && (
@@ -649,7 +641,8 @@ export default function StudentsContent() {
                   The student must be unenrolled from these classes before deletion.
                 </p>
               </div>
-            )}
+            )
+            }
             
             {/* If there are pending payments */}
             {!deletionChecks.checkingPayments && deletionChecks.pendingPayments.length > 0 && (
@@ -668,7 +661,8 @@ export default function StudentsContent() {
                   Deleting this student will also remove any pending payments.
                 </p>
               </div>
-            )}
+            )
+            }
             
             {/* No issues found */}
             {!deletionChecks.checkingEnrollments && 
@@ -677,7 +671,8 @@ export default function StudentsContent() {
               <p className="text-gray-600 text-center mb-4">
                 Are you sure you want to delete this student? This action cannot be undone.
               </p>
-            )}
+            )
+            }
             
             <div className="flex justify-center space-x-3 mt-4">
               <button
@@ -718,7 +713,8 @@ export default function StudentsContent() {
             </div>
           </div>
         </div>
-      )}
+      )
+      }
       
       {/* Other Modals */}
       <StudentDetailModal 

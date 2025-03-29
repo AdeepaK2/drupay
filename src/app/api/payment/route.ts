@@ -5,14 +5,7 @@ import Student from '@/utils/models/studentSchema';
 import Enrollment, { EnrollmentStatus } from '@/utils/models/enrollmentSchema';
 import Class from '@/utils/models/classSchema';
 
-// Connect to database
-async function connectDB() {
-  try {
-    await connect();
-  } catch (error) {
-    return NextResponse.json({ success: false, message: 'Database connection failed' }, { status: 500 });
-  }
-}
+
 
 function calculateProratedAmount(monthlyFee: number, enrollmentDate: Date, month: number, year: number, useSimpleProration: boolean = false): number {
   // Create date objects for the first and last day of the target month
@@ -37,60 +30,33 @@ function calculateProratedAmount(monthlyFee: number, enrollmentDate: Date, month
     return 0;
   }
 
-  // Calculate the number of weeks in the month (rounded up)
-  const weeksInMonth = Math.ceil(daysInMonth / 7);
-  console.log('Weeks in month:', weeksInMonth);
-  
-  // Calculate which week of the month the enrollment falls in (1-based)
+  // Calculate which week of the month the enrollment falls in
   const dayOfMonth = enrollmentDate.getDate();
-  const enrollmentWeek = Math.ceil(dayOfMonth / 7);
-  console.log('Enrollment week:', enrollmentWeek);
   
-  if (useSimpleProration) {
-    // Simple weekly proration: only pay for the weeks student will attend
-    // If enrolled in week 5 of a 5-week month, pay for 1 week = 1/5 of fee
-    
-    // Calculate remaining weeks in month (including enrollment week)
-    const remainingWeeks = weeksInMonth - enrollmentWeek + 1;
-    const weeklyRate = monthlyFee / weeksInMonth;
-    
-    // Use simple multiplication and rounding to ensure whole numbers
-    const proratedAmount = Math.round(remainingWeeks * weeklyRate);
-    
-    console.log('Simple proration - weeks in month:', weeksInMonth);
-    console.log('Simple proration - enrollment week:', enrollmentWeek);
-    console.log('Simple proration - remaining weeks:', remainingWeeks);
-    console.log('Simple proration - weekly rate:', weeklyRate);
-    console.log('Simple proration - prorated amount:', proratedAmount);
-    
-    return proratedAmount;
-  }
+  // For a simple week-based proration:
+  // Week 1: days 1-7, Week 2: days 8-14, Week 3: days 15-21, Week 4+: days 22+
+  let weekNumber = 1;
+  if (dayOfMonth >= 8 && dayOfMonth <= 14) weekNumber = 2;
+  else if (dayOfMonth >= 15 && dayOfMonth <= 21) weekNumber = 3;
+  else if (dayOfMonth >= 22) weekNumber = 4;
+
+  console.log('Enrollment week number:', weekNumber);
   
-  // Rest of the function remains unchanged for non-simple proration
-  // Regular proration rules:
-  // 1. If enrolled in first 60% of the month (3 weeks in a 5-week month), charge full fee
-  // 2. If enrolled in last 40% of the month, prorate based on remaining weeks
-  const thresholdWeek = Math.ceil(weeksInMonth * 0.6);
-  console.log('Threshold week:', thresholdWeek);
+  // Calculate prorated amount based on weeks remaining
+  const weeksInMonth = 4; // We consider a standard 4-week month for simplicity
+  const remainingWeeks = weeksInMonth - weekNumber + 1;
+  const proratedAmount = Math.round((remainingWeeks / weeksInMonth) * monthlyFee);
   
-  if (enrollmentWeek <= thresholdWeek) {
-    console.log('Enrolled in first 60% of month - full fee:', monthlyFee);
-    return monthlyFee;
-  } else {
-    // Calculate remaining weeks
-    const remainingWeeks = weeksInMonth - enrollmentWeek + 1;
-    // Calculate prorated amount based on remaining weeks
-    const proratedAmount = Math.round((remainingWeeks / weeksInMonth) * monthlyFee);
-    console.log('Remaining weeks:', remainingWeeks);
-    console.log('Prorated amount based on weeks:', proratedAmount);
-    return proratedAmount;
-  }
+  console.log('Weeks remaining:', remainingWeeks);
+  console.log('Prorated amount:', proratedAmount);
+  
+  return proratedAmount;
 }
 
 // GET payments with filtering options
 export async function GET(request: NextRequest) {
   try {
-    await connectDB();
+    await connect();
     
     const searchParams = request.nextUrl.searchParams;
     const studentSid = searchParams.get('studentId');
@@ -217,7 +183,7 @@ export async function GET(request: NextRequest) {
 // POST - Create a new payment record
 export async function POST(request: NextRequest) {
   try {
-    await connectDB();
+    await connect();
     
     const body = await request.json();
     
@@ -348,7 +314,7 @@ export async function POST(request: NextRequest) {
 // PATCH - Update payment status or details
 export async function PATCH(request: NextRequest) {
   try {
-    await connectDB();
+    await connect();
     
     const body = await request.json();
     
@@ -392,7 +358,7 @@ export async function PATCH(request: NextRequest) {
 // DELETE - Remove a payment record
 export async function DELETE(request: NextRequest) {
   try {
-    await connectDB();
+    await connect();
     
     const searchParams = request.nextUrl.searchParams;
     const id = searchParams.get('id');

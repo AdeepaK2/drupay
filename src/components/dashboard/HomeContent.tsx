@@ -139,17 +139,17 @@ export default function HomeContent({ user }: HomeContentProps) {
         </div>
 
         <div className="text-3xl font-bold mb-5">
-          £{(paymentSummary.totalReceived + paymentSummary.totalPending).toFixed(2)}
+          ${(paymentSummary.totalReceived + paymentSummary.totalPending).toFixed(2)}
         </div>
         
         <div className="grid grid-cols-2 gap-4 text-center">
           <div className="bg-white/10 p-3 rounded-lg backdrop-blur-sm">
             <span className="block text-xs text-indigo-100">Received</span>
-            <span className="font-bold text-lg">£{paymentSummary.totalReceived.toFixed(2)}</span>
+            <span className="font-bold text-lg">${paymentSummary.totalReceived.toFixed(2)}</span>
           </div>
           <div className="bg-white/10 p-3 rounded-lg backdrop-blur-sm">
             <span className="block text-xs text-indigo-100">Pending</span>
-            <span className="font-bold text-lg">£{paymentSummary.totalPending.toFixed(2)}</span>
+            <span className="font-bold text-lg">${paymentSummary.totalPending.toFixed(2)}</span>
           </div>
         </div>
       </div>
@@ -215,11 +215,11 @@ export default function HomeContent({ user }: HomeContentProps) {
                     <div className="grid grid-cols-1 gap-4">
                       <div className="bg-green-50 p-4 rounded-lg border-l-4 border-green-400">
                         <p className="text-sm text-green-800 font-medium">Cash</p>
-                        <p className="text-2xl font-bold text-gray-800">£{paymentSummary.byCash.toFixed(2)}</p>
+                        <p className="text-2xl font-bold text-gray-800">${paymentSummary.byCash.toFixed(2)}</p>
                       </div>
                       <div className="bg-blue-50 p-4 rounded-lg border-l-4 border-blue-400">
                         <p className="text-sm text-blue-800 font-medium">Invoice</p>
-                        <p className="text-2xl font-bold text-gray-800">£{paymentSummary.byInvoice.toFixed(2)}</p>
+                        <p className="text-2xl font-bold text-gray-800">${paymentSummary.byInvoice.toFixed(2)}</p>
                       </div>
                     </div>
                   </div>
@@ -249,7 +249,7 @@ export default function HomeContent({ user }: HomeContentProps) {
                             <h4 className="font-medium text-sm">{payment.student?.name}</h4>
                             <p className="text-xs text-gray-500">{payment.class?.name}</p>
                           </div>
-                          <span className="font-bold text-lg">£{payment.amount.toFixed(2)}</span>
+                          <span className="font-bold text-lg">${payment.amount.toFixed(2)}</span>
                         </div>
                         <div className="flex justify-between items-center mt-2">
                           <span className="text-xs text-gray-500">

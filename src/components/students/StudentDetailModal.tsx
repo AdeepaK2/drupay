@@ -41,6 +41,7 @@ interface Enrollment {
   status: string;
   enrollmentDate: string;
   endDate?: string;
+  adjustedFee?: number; // Added field
 }
 
 interface ClassDetails {
@@ -65,6 +66,14 @@ interface StudentDetailModalProps {
   onEdit?: () => void; 
 }
 
+interface AdjustFeeDialogProps {
+  isOpen: boolean;
+  onClose: () => void;
+  onSave: (adjustedFee: number) => void;
+  currentFee: number;
+  loading: boolean;
+}
+
 const StudentDetailModal: React.FC<StudentDetailModalProps> = ({ 
   student, 
   isOpen, 
@@ -80,6 +89,10 @@ const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
   const [confirmationData, setConfirmationData] = useState<{enrollmentId: string, classId: string} | null>(null);
   const [alertMessage, setAlertMessage] = useState<{type: 'error' | 'success', message: string} | null>(null);
+  const [adjustFeeDialogOpen, setAdjustFeeDialogOpen] = useState(false);
+  const [selectedEnrollmentId, setSelectedEnrollmentId] = useState<string | null>(null);
+  const [currentClassFee, setCurrentClassFee] = useState<number>(0);
+  const [savingAdjustedFee, setSavingAdjustedFee] = useState(false);
 
   useEffect(() => {
     if (isOpen && student?._id) {
@@ -167,6 +180,56 @@ const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
     } finally {
       setUnenrollLoading(null);
       setConfirmationData(null);
+    }
+  };
+
+  const handleAdjustFee = (enrollmentId: string, currentFee: number) => {
+    setSelectedEnrollmentId(enrollmentId);
+    setCurrentClassFee(currentFee);
+    setAdjustFeeDialogOpen(true);
+  };
+
+  const handleSaveAdjustedFee = async (adjustedFee: number) => {
+    if (!selectedEnrollmentId) return;
+    
+    setSavingAdjustedFee(true);
+    try {
+      const response = await fetch('/api/enrollment', {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          _id: selectedEnrollmentId,
+          adjustedFee: adjustedFee
+        }),
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to update fee');
+      }
+      
+      const updatedEnrollment = await response.json();
+      
+      // Update the enrollment in the local state
+      setEnrollments(enrollments.map(e => 
+        e._id === selectedEnrollmentId ? updatedEnrollment : e
+      ));
+      
+      setAlertMessage({ 
+        type: 'success', 
+        message: 'Adjusted fee has been updated successfully' 
+      });
+    } catch (err) {
+      console.error('Error updating fee:', err);
+      setAlertMessage({
+        type: 'error',
+        message: 'Failed to update adjusted fee'
+      });
+    } finally {
+      setSavingAdjustedFee(false);
+      setAdjustFeeDialogOpen(false);
+      setSelectedEnrollmentId(null);
     }
   };
 
@@ -389,12 +452,21 @@ const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
                             </div>
                             <div>
                               <span className="text-gray-500">Fee:</span> ${classInfo.monthlyFee}
+                              {enrollment.adjustedFee !== undefined && enrollment.adjustedFee !== classInfo.monthlyFee && (
+                                <span className="ml-1 text-green-600">(${enrollment.adjustedFee})</span>
+                              )}
                             </div>
                           </div>
                           
-                          <div className="flex justify-between items-center mt-1">
-                            <div>
-                              <span className="text-gray-500">Location:</span> {classInfo.centerName}
+                          <div className="mt-2 flex justify-between items-center">
+                            <div className="flex space-x-2">
+                              <button
+                                onClick={() => handleAdjustFee(enrollment._id, classInfo.monthlyFee)}
+                                className="text-xs px-2 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 rounded flex items-center"
+                              >
+                                <FiDollarSign className="w-3 h-3 mr-1" />
+                                {enrollment.adjustedFee !== undefined && enrollment.adjustedFee !== classInfo.monthlyFee ? 'Change Fee' : 'Adjust Fee'}
+                              </button>
                             </div>
                             
                             <div className="text-gray-500">
@@ -519,6 +591,78 @@ const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
           </div>
         </div>
       )}
+
+      <AdjustFeeDialog
+        isOpen={adjustFeeDialogOpen}
+        onClose={() => setAdjustFeeDialogOpen(false)}
+        onSave={handleSaveAdjustedFee}
+        currentFee={currentClassFee}
+        loading={savingAdjustedFee}
+      />
+    </div>
+  );
+};
+
+const AdjustFeeDialog: React.FC<AdjustFeeDialogProps> = ({ 
+  isOpen, 
+  onClose, 
+  onSave, 
+  currentFee,
+  loading
+}) => {
+  const [fee, setFee] = useState<number>(currentFee);
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 z-[70] flex items-center justify-center p-4">
+      <div className="bg-white rounded-lg shadow-xl max-w-sm w-full p-5">
+        <h3 className="text-lg font-medium text-gray-900 mb-3">Adjust Monthly Fee</h3>
+        
+        <div className="mb-4">
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Standard Fee: ${currentFee}
+          </label>
+          <input
+            type="number"
+            value={fee}
+            onChange={(e) => setFee(Number(e.target.value))}
+            className="w-full border rounded-md px-3 py-2 focus:ring-indigo-500 focus:border-indigo-500"
+            placeholder="Enter adjusted fee amount"
+            min="0"
+            step="0.01"
+          />
+          <p className="text-xs text-gray-500 mt-1">
+            Enter the adjusted fee amount for this student. Leave as is for standard fee.
+          </p>
+        </div>
+        
+        <div className="flex justify-end space-x-3">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={loading}
+            className="px-3 py-1.5 border border-gray-300 rounded-md text-gray-700 text-sm hover:bg-gray-50"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={() => onSave(fee)}
+            disabled={loading}
+            className="px-3 py-1.5 bg-blue-600 text-white rounded-md text-sm hover:bg-blue-700 flex items-center"
+          >
+            {loading ? (
+              <>
+                <div className="animate-spin h-4 w-4 border-2 border-white border-opacity-20 border-t-white rounded-full mr-2"></div>
+                Saving...
+              </>
+            ) : (
+              'Save Fee'
+            )}
+          </button>
+        </div>
+      </div>
     </div>
   );
 };

@@ -22,11 +22,7 @@ export interface IEnrollment extends Document {
   enrollmentDate: Date;
   status: EnrollmentStatus;
   endDate?: Date;
-  feeAdjustment?: {
-    type: 'discount' | 'waiver' | 'custom';
-    value: number; // Percentage for discount, fixed amount for custom
-    reason?: string;
-  };
+  adjustedFee?: number; // The final fee amount after any discounts or adjustments
   notes?: string;
   createdAt: Date;
   updatedAt: Date;
@@ -62,13 +58,9 @@ const enrollmentSchema = new Schema<IEnrollment>(
       required: true 
     },
     endDate: { type: Date },
-    feeAdjustment: {
-      type: { 
-        type: String, 
-        enum: ['discount', 'waiver', 'custom']
-      },
-      value: { type: Number },
-      reason: { type: String }
+    adjustedFee: {
+      type: Number,
+      description: 'The final fee amount after any discounts or adjustments'
     },
     notes: { type: String }
   },

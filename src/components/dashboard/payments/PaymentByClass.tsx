@@ -528,7 +528,7 @@ export function PaymentByClass({ onPaymentSuccess }: PaymentByClassProps) {
           }
         }));
         
-        onPaymentSuccess(`Payment of £${proratedAmount} for ${student.student.name} marked as paid!`);
+        onPaymentSuccess(`Payment of $${proratedAmount} for ${student.student.name} marked as paid!`);
       } else {
         // If payment record already exists
         paymentId = checkData.payments[0]._id;
@@ -648,7 +648,7 @@ export function PaymentByClass({ onPaymentSuccess }: PaymentByClassProps) {
     
     // FIXED: Changed comparison from >= to > to allow exact payment of remaining balance
     if (newTotalPaid > selectedClass.monthlyFee) {
-      setPartialPaymentError(`This payment would exceed the full fee amount. Maximum payment: £${(selectedClass.monthlyFee - totalPaidSoFar).toFixed(2)}`);
+      setPartialPaymentError(`This payment would exceed the full fee amount. Maximum payment: $${(selectedClass.monthlyFee - totalPaidSoFar).toFixed(2)}`);
       return;
     }
     
@@ -709,8 +709,8 @@ export function PaymentByClass({ onPaymentSuccess }: PaymentByClassProps) {
           paidDate: isPaidInFull ? new Date().toISOString() : undefined,
           paymentMethod: studentDetails[studentId]?.paymentMethod || 'Cash',
           notes: isPaidInFull 
-            ? `Final payment of £${amount} received. Total paid: £${selectedClass.monthlyFee.toFixed(2)}.` 
-            : `Partial payment of £${amount} received. Total paid so far: £${newTotalPaid.toFixed(2)}. Remaining: £${remainingBalance.toFixed(2)}`
+            ? `Final payment of $${amount} received. Total paid: $${selectedClass.monthlyFee.toFixed(2)}.` 
+            : `Partial payment of $${amount} received. Total paid so far: $${newTotalPaid.toFixed(2)}. Remaining: $${remainingBalance.toFixed(2)}`
         }),
       });
       
@@ -748,9 +748,9 @@ export function PaymentByClass({ onPaymentSuccess }: PaymentByClassProps) {
       setPartialPaymentAmount('');
       
       if (isPaidInFull) {
-        onPaymentSuccess(`Payment completed for ${partialPaymentStudent.student.name}! Full amount of £${selectedClass.monthlyFee} received.`);
+        onPaymentSuccess(`Payment completed for ${partialPaymentStudent.student.name}! Full amount of $${selectedClass.monthlyFee} received.`);
       } else {
-        onPaymentSuccess(`Partial payment of £${amount} recorded for ${partialPaymentStudent.student.name}!`);
+        onPaymentSuccess(`Partial payment of $${amount} recorded for ${partialPaymentStudent.student.name}!`);
       }
     } catch (err: any) {
       setPartialPaymentError(err.message);
@@ -792,7 +792,7 @@ export function PaymentByClass({ onPaymentSuccess }: PaymentByClassProps) {
           <p className="text-sm text-gray-500 mt-1">{classObj.subject} (Grade {classObj.grade})</p>
         </div>
         <span className="text-sm font-semibold bg-blue-100 text-blue-800 px-2 py-1 rounded-md">
-          £{classObj.monthlyFee}
+          ${classObj.monthlyFee}
         </span>
       </div>
       <div className="mt-2 text-xs text-gray-500 flex justify-between">
@@ -1035,7 +1035,7 @@ export function PaymentByClass({ onPaymentSuccess }: PaymentByClassProps) {
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <span className="px-2 py-1 inline-flex text-sm leading-5 font-semibold rounded-full bg-blue-100 text-blue-800">
-                        £{classObj.monthlyFee}
+                        ${classObj.monthlyFee}
                       </span>
                     </td>
                   </tr>
@@ -1062,7 +1062,7 @@ export function PaymentByClass({ onPaymentSuccess }: PaymentByClassProps) {
                   {selectedClass.name} Students
                 </h3>
                 <p className="text-sm text-blue-700 mt-1">
-                  Monthly Fee: <span className="font-semibold">£{selectedClass.monthlyFee}</span> | Class ID: {selectedClass.classId}
+                  Monthly Fee: <span className="font-semibold">${selectedClass.monthlyFee}</span> | Class ID: {selectedClass.classId}
                 </p>
               </div>
               <button
@@ -1236,7 +1236,7 @@ export function PaymentByClass({ onPaymentSuccess }: PaymentByClassProps) {
                                      paymentInfo.proratedAmount !== selectedClass?.monthlyFee && (
                                       <div className="mt-1 px-2 py-1 bg-indigo-50 border border-indigo-200 rounded text-xs">
                                         <span className="text-indigo-700 font-medium">
-                                          Prorated: £{paymentInfo.proratedAmount.toFixed(2)}
+                                          Prorated: ${paymentInfo.proratedAmount.toFixed(2)}
                                         </span>
                                       </div>
                                     )}
@@ -1248,11 +1248,11 @@ export function PaymentByClass({ onPaymentSuccess }: PaymentByClassProps) {
                                         <p className="text-xs font-medium text-amber-700">
                                           Partial payments: 
                                           <span className="font-bold ml-1">
-                                            £{paymentInfo.partialPayments.reduce((sum, p) => sum + p.amount, 0).toFixed(2)}
+                                            ${paymentInfo.partialPayments.reduce((sum, p) => sum + p.amount, 0).toFixed(2)}
                                           </span>
                                         </p>
                                         <p className="text-xs text-amber-700">
-                                          Remaining: £{paymentInfo.remainingBalance?.toFixed(2)}
+                                          Remaining: ${paymentInfo.remainingBalance?.toFixed(2)}
                                         </p>
                                       </div>
                                     )}
@@ -1338,7 +1338,7 @@ export function PaymentByClass({ onPaymentSuccess }: PaymentByClassProps) {
                   <p className="text-sm font-medium text-gray-700">Student: {partialPaymentStudent.student.name}</p>
                   <p className="text-sm text-gray-500">ID: {partialPaymentStudent.student.sid}</p>
                   <p className="text-sm font-medium text-gray-700 mt-2">Class: {selectedClass?.name}</p>
-                  <p className="text-sm text-gray-500">Monthly Fee: £{selectedClass?.monthlyFee}</p>
+                  <p className="text-sm text-gray-500">Monthly Fee: ${selectedClass?.monthlyFee}</p>
                   
                   {/* Show existing partial payments */}
                   {paymentStatus[partialPaymentStudent.student.sid]?.partialPayments && 
@@ -1348,17 +1348,17 @@ export function PaymentByClass({ onPaymentSuccess }: PaymentByClassProps) {
                       <ul className="mt-1 space-y-1">
                         {paymentStatus[partialPaymentStudent.student.sid]?.partialPayments!.map((payment, idx) => (
                           <li key={idx} className="text-xs">
-                            <span className="font-medium">£{payment.amount.toFixed(2)}</span> on {new Date(payment.date).toLocaleDateString()}
+                            <span className="font-medium">${payment.amount.toFixed(2)}</span> on {new Date(payment.date).toLocaleDateString()}
                           </li>
                         ))}
                       </ul>
                       <p className="mt-2 text-sm font-medium text-blue-800">
-                        Total Paid: £{paymentStatus[partialPaymentStudent.student.sid]?.partialPayments!
+                        Total Paid: ${paymentStatus[partialPaymentStudent.student.sid]?.partialPayments!
                           .reduce((sum, p) => sum + p.amount, 0)
                           .toFixed(2)}
                       </p>
                       <p className="text-sm font-medium text-blue-800">
-                        Remaining: £{paymentStatus[partialPaymentStudent.student.sid]?.remainingBalance?.toFixed(2)}
+                        Remaining: ${paymentStatus[partialPaymentStudent.student.sid]?.remainingBalance?.toFixed(2)}
                       </p>
                     </div>
                   )}
@@ -1366,12 +1366,12 @@ export function PaymentByClass({ onPaymentSuccess }: PaymentByClassProps) {
                 
                 <div className="mb-5">
                   <label htmlFor="partialAmount" className="block text-sm font-medium text-gray-700 mb-1">
-                    Payment Amount (£)
+                    Payment Amount ($)
                   </label>
                   <input
                     type="number"
                     id="partialAmount"
-                    placeholder={`Max: £${
+                    placeholder={`Max: $${
                       (paymentStatus[partialPaymentStudent.student.sid]?.remainingBalance || selectedClass.monthlyFee).toFixed(2)
                     }`}
                     step="0.01"

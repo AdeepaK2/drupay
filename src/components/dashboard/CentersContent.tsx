@@ -295,7 +295,13 @@ export default function CentersContent() {
               className="border rounded-xl overflow-hidden shadow-md hover:shadow-lg transition-shadow"
             >
               <div
-                className={`${bgColors[index % bgColors.length]} p-6 relative`}
+                className={`${
+                  center.cid === 1 
+                    ? "bg-green-200" 
+                    : center.cid === 2
+                      ? "bg-pink-200"
+                      : bgColors[index % bgColors.length]
+                } p-6 relative`}
               >
                 <div className="absolute top-4 right-4 bg-white bg-opacity-90 rounded-full px-3 py-1 text-sm font-medium">
                   Center #{center.cid}
@@ -313,7 +319,11 @@ export default function CentersContent() {
               <div className="p-5">
                 <h3
                   className={`font-bold text-lg ${
-                    textColors[index % textColors.length]
+                    center.cid === 1 
+                      ? "text-green-700" 
+                      : center.cid === 2
+                        ? "text-pink-700"
+                        : textColors[index % textColors.length]
                   }`}
                 >
                   {center.name}
