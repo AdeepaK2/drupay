@@ -5,14 +5,7 @@ import Student from '@/utils/models/studentSchema';
 import Enrollment, { EnrollmentStatus } from '@/utils/models/enrollmentSchema';
 import Class from '@/utils/models/classSchema';
 
-// Connect to database
-async function connectDB() {
-  try {
-    await connect();
-  } catch (error) {
-    return NextResponse.json({ success: false, message: 'Database connection failed' }, { status: 500 });
-  }
-}
+
 
 function calculateProratedAmount(monthlyFee: number, enrollmentDate: Date, month: number, year: number, useSimpleProration: boolean = false): number {
   // Create date objects for the first and last day of the target month
@@ -63,7 +56,7 @@ function calculateProratedAmount(monthlyFee: number, enrollmentDate: Date, month
 // GET payments with filtering options
 export async function GET(request: NextRequest) {
   try {
-    await connectDB();
+    await connect();
     
     const searchParams = request.nextUrl.searchParams;
     const studentSid = searchParams.get('studentId');
@@ -190,7 +183,7 @@ export async function GET(request: NextRequest) {
 // POST - Create a new payment record
 export async function POST(request: NextRequest) {
   try {
-    await connectDB();
+    await connect();
     
     const body = await request.json();
     
@@ -321,7 +314,7 @@ export async function POST(request: NextRequest) {
 // PATCH - Update payment status or details
 export async function PATCH(request: NextRequest) {
   try {
-    await connectDB();
+    await connect();
     
     const body = await request.json();
     
@@ -365,7 +358,7 @@ export async function PATCH(request: NextRequest) {
 // DELETE - Remove a payment record
 export async function DELETE(request: NextRequest) {
   try {
-    await connectDB();
+    await connect();
     
     const searchParams = request.nextUrl.searchParams;
     const id = searchParams.get('id');

@@ -2,20 +2,13 @@ import { NextRequest, NextResponse } from 'next/server';
 import connect from '@/utils/db';
 import Student from '@/utils/models/studentSchema';
 import Counter from '@/utils/models/counterSchema';
-
-// Connect to database
-async function connectDB() {
-  try {
-    await connect();
-  } catch (error) {
-    return NextResponse.json({ success: false, message: 'Database connection failed' }, { status: 500 });
-  }
-}
+import Payment, { PaymentStatus } from '@/utils/models/paymentSchema';
+import Enrollment from '@/utils/models/enrollmentSchema';
 
 // GET all students
 export async function GET(request: NextRequest) {
   try {
-    await connectDB();
+    await connect();
     
     // Extract query parameters
     const searchParams = request.nextUrl.searchParams;
@@ -55,7 +48,7 @@ export async function GET(request: NextRequest) {
 // POST - Create a new student
 export async function POST(request: NextRequest) {
   try {
-    await connectDB();
+    await connect();
     
     const body = await request.json();
     
@@ -100,7 +93,7 @@ export async function POST(request: NextRequest) {
 
 export async function PATCH(request: NextRequest) {
   try {
-    await connectDB();
+    await connect();
     const body = await request.json();
     
     // Get the student SID which is required for the update
@@ -180,22 +173,47 @@ export async function PATCH(request: NextRequest) {
 // DELETE - Delete a student
 export async function DELETE(request: NextRequest) {
   try {
-    await connectDB();
+    await connect();
     
     const searchParams = request.nextUrl.searchParams;
     const id = searchParams.get('id');
+    const sid = searchParams.get('sid'); // Allow deletion by SID too
     
-    if (!id) {
-      return NextResponse.json({ error: 'Student ID is required' }, { status: 400 });
+    if (!id && !sid) {
+      return NextResponse.json({ error: 'Student ID or SID is required' }, { status: 400 });
     }
     
-    const deletedStudent = await Student.findByIdAndDelete(id);
+    // Find the student first to get their SID
+    const studentQuery = id ? { _id: id } : { sid: sid };
+    const student = await Student.findOne(studentQuery);
     
-    if (!deletedStudent) {
+    if (!student) {
       return NextResponse.json({ error: 'Student not found' }, { status: 404 });
     }
     
-    return NextResponse.json({ message: 'Student deleted successfully' }, { status: 200 });
+    // Get student's SID for related deletions
+    const studentSid = student.sid;
+    
+    // 1. Delete all PENDING payments for this student
+    // Keep PAID payments for financial records
+    const deletedPayments = await Payment.deleteMany({
+      'student.sid': studentSid,
+      'status': PaymentStatus.PENDING
+    });
+    
+    // 2. Delete all enrollments for this student
+    const deletedEnrollments = await Enrollment.deleteMany({
+      'student.sid': studentSid
+    });
+    
+    // 3. Delete the student
+    const deletedStudent = await Student.findByIdAndDelete(student._id);
+    
+    return NextResponse.json({ 
+      message: 'Student deleted successfully', 
+      deletedPaymentCount: deletedPayments.deletedCount,
+      deletedEnrollmentCount: deletedEnrollments.deletedCount
+    }, { status: 200 });
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }

@@ -12,12 +12,11 @@ const AddStudentModal: React.FC<AddStudentModalProps> = ({ isOpen, onClose, onSu
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string>('');
   
-  // Student form state
+  // Student form state - removed grade field
   const [studentData, setStudentData] = useState({
     name: '',
     email: '',
     contactNumber: '',
-    grade: '',
     paymentMethod: 'Cash', // Default payment method
     parent: {
       name: '',
@@ -194,7 +193,6 @@ const AddStudentModal: React.FC<AddStudentModalProps> = ({ isOpen, onClose, onSu
       name: '',
       email: '',
       contactNumber: '',
-      grade: '',
       paymentMethod: 'Cash',
       parent: {
         name: '',
@@ -253,7 +251,7 @@ const AddStudentModal: React.FC<AddStudentModalProps> = ({ isOpen, onClose, onSu
                 )}
                 
                 <form onSubmit={handleSubmit}>
-                  {/* Step 1: Student Details */}
+                  {/* Step 1: Student Details - removed grade field */}
                   {step === 1 && (
                     <div className="space-y-4">
                       <div>
@@ -298,20 +296,6 @@ const AddStudentModal: React.FC<AddStudentModalProps> = ({ isOpen, onClose, onSu
                           onChange={handleChange}
                           className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
                           required
-                        />
-                      </div>
-                      
-                      <div>
-                        <label htmlFor="grade" className="block text-sm font-medium text-gray-700">
-                          Grade
-                        </label>
-                        <input
-                          type="text"
-                          id="grade"
-                          name="grade"
-                          value={studentData.grade}
-                          onChange={handleChange}
-                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
                         />
                       </div>
                     </div>
