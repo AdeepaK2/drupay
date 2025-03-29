@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 // ClickSend API credentials
-const CLICKSEND_USERNAME = process.env.CLICK_USERNAME;
+const CLICKSEND_USERNAME = process.env.CLICK_USER;
 const CLICKSEND_API_KEY = process.env.CLICK_API;
 
 // Base64 encode the credentials for Basic Auth
