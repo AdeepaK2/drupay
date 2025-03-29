@@ -4,6 +4,7 @@ import Payment, { PaymentStatus } from '@/utils/models/paymentSchema';
 import Student from '@/utils/models/studentSchema';
 import Enrollment, { EnrollmentStatus } from '@/utils/models/enrollmentSchema';
 import Class from '@/utils/models/classSchema';
+import { calculateProratedAmount } from '@/utils/paymentUtils';
 
 // Connect to database
 async function connectDB() {
@@ -13,82 +14,6 @@ async function connectDB() {
     return NextResponse.json({ success: false, message: 'Database connection failed' }, { status: 500 });
   }
 }
-
-function calculateProratedAmount(monthlyFee: number, enrollmentDate: Date, month: number, year: number, useSimpleProration: boolean = false): number {
-  // Create date objects for the first and last day of the target month
-  const startOfMonth = new Date(year, month - 1, 1);
-  const endOfMonth = new Date(year, month, 0); 
-  const daysInMonth = endOfMonth.getDate();
-  
-  console.log('Start of month:', startOfMonth);
-  console.log('End of month:', endOfMonth);
-  console.log('Enrollment date:', enrollmentDate);
-  console.log('Using simple proration:', useSimpleProration);
-  
-  // If enrollment is before the month starts, charge full fee
-  if (enrollmentDate < startOfMonth) {
-    console.log('Enrollment before month - full fee:', monthlyFee);
-    return monthlyFee;
-  }
-  
-  // If enrollment is after the month ends, no charge
-  if (enrollmentDate > endOfMonth) {
-    console.log('Enrollment after month - no fee');
-    return 0;
-  }
-
-  // Calculate the number of weeks in the month (rounded up)
-  const weeksInMonth = Math.ceil(daysInMonth / 7);
-  console.log('Weeks in month:', weeksInMonth);
-  
-  // Calculate which week of the month the enrollment falls in (1-based)
-  const dayOfMonth = enrollmentDate.getDate();
-  const enrollmentWeek = Math.ceil(dayOfMonth / 7);
-  console.log('Enrollment week:', enrollmentWeek);
-  
-  if (useSimpleProration) {
-    // Simple weekly proration: only pay for the weeks student will attend
-    // If enrolled in week 5 of a 5-week month, pay for 1 week = 1/5 of fee
-    
-    // Calculate remaining weeks in month (including enrollment week)
-    const remainingWeeks = weeksInMonth - enrollmentWeek + 1;
-    const weeklyRate = monthlyFee / weeksInMonth;
-    
-    // Use simple multiplication and rounding to ensure whole numbers
-    const proratedAmount = Math.round(remainingWeeks * weeklyRate);
-    
-    console.log('Simple proration - weeks in month:', weeksInMonth);
-    console.log('Simple proration - enrollment week:', enrollmentWeek);
-    console.log('Simple proration - remaining weeks:', remainingWeeks);
-    console.log('Simple proration - weekly rate:', weeklyRate);
-    console.log('Simple proration - prorated amount:', proratedAmount);
-    
-    return proratedAmount;
-  }
-  
-  // Rest of the function remains unchanged for non-simple proration
-  // Regular proration rules:
-  // 1. If enrolled in first 60% of the month (3 weeks in a 5-week month), charge full fee
-  // 2. If enrolled in last 40% of the month, prorate based on remaining weeks
-  const thresholdWeek = Math.ceil(weeksInMonth * 0.6);
-  console.log('Threshold week:', thresholdWeek);
-  
-  if (enrollmentWeek <= thresholdWeek) {
-    console.log('Enrolled in first 60% of month - full fee:', monthlyFee);
-    return monthlyFee;
-  } else {
-    // Calculate remaining weeks
-    const remainingWeeks = weeksInMonth - enrollmentWeek + 1;
-    // Calculate prorated amount based on remaining weeks
-    const proratedAmount = Math.round((remainingWeeks / weeksInMonth) * monthlyFee);
-    console.log('Remaining weeks:', remainingWeeks);
-    console.log('Prorated amount based on weeks:', proratedAmount);
-    return proratedAmount;
-  }
-}
-
-// Export the function so it can be used by other routes
-export { calculateProratedAmount };
 
 // GET payments with filtering options
 export async function GET(request: NextRequest) {
@@ -276,27 +201,38 @@ export async function POST(request: NextRequest) {
     const useSimpleProration = body.useSimpleProration === true;
     
     // Calculate prorated amount if student joined mid-month
-    // Check if startDate exists in enrollment, otherwise use createdAt as fallback
+    // FIXED: Use enrollmentDate (which exists in schema) instead of startDate (which doesn't)
     let enrollmentDate;
-    if (enrollment.startDate) {
+    if (enrollment.enrollmentDate) {
       // Make sure we have a proper Date object
-      enrollmentDate = new Date(enrollment.startDate);
+      enrollmentDate = new Date(enrollment.enrollmentDate);
       
       // Check if the date is valid, if not use createdAt as fallback
       if (isNaN(enrollmentDate.getTime())) {
-        console.log('Invalid enrollment start date, using createdAt as fallback');
+        console.log('Invalid enrollment date, using createdAt as fallback');
         enrollmentDate = new Date(enrollment.createdAt);
       }
     } else {
       // Fallback to when the enrollment was created
-      console.log('No enrollment start date found, using createdAt as fallback');
+      console.log('No enrollment date found, using createdAt as fallback');
       enrollmentDate = new Date(enrollment.createdAt);
     }
     
     console.log('Parsed enrollment date:', enrollmentDate);
     
-    const monthlyFee = classObj.monthlyFee;
-    const amount = calculateProratedAmount(monthlyFee, enrollmentDate, body.month, body.academicYear, useSimpleProration);
+    // Use adjusted fee if available, otherwise use standard class fee
+    const effectiveFee = enrollment.adjustedFee !== undefined ? 
+      enrollment.adjustedFee : 
+      classObj.monthlyFee;
+
+    console.log('Using fee for calculation:', {
+      standardFee: classObj.monthlyFee,
+      adjustedFee: enrollment.adjustedFee,
+      effectiveFee
+    });
+
+    // Use the effective fee for proration calculation
+    const amount = calculateProratedAmount(effectiveFee, enrollmentDate, body.month, body.academicYear, useSimpleProration);
     
     // Create payment object
     const paymentData = {
@@ -337,7 +273,7 @@ export async function POST(request: NextRequest) {
         enrollmentDate: enrollmentDate.toString(),
         startOfMonth: new Date(body.academicYear, body.month - 1, 1).toString(),
         endOfMonth: endOfMonth.toString(),
-        monthlyFee,
+        monthlyFee: effectiveFee,
         calculatedAmount: amount,
         weeksInMonth: Math.ceil(endOfMonth.getDate() / 7),
         enrollmentWeek: Math.ceil(enrollmentDate.getDate() / 7)
