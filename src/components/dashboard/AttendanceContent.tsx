@@ -187,6 +187,44 @@ export default function AttendanceContent() {
     }
   };
 
+  // View attendance details function
+  const viewAttendanceDetails = async (record: Schedule) => {
+    try {
+      // Find the class object
+      const classObj = classes.find(c => c.classId === record.classId);
+      
+      if (classObj) {
+        setSelectedClass(classObj);
+        setSelectedDate(new Date(record.date).toISOString().split('T')[0]);
+        
+        // Set the selected schedule
+        setSelectedSchedule(record);
+        
+        // Set up attendance map from the record
+        const attendanceObj: {[key: string]: boolean} = {};
+        record.attendance.forEach((a: Attendance) => {
+          attendanceObj[a.sid] = a.present;
+        });
+        setAttendanceMap(attendanceObj);
+        
+        // Get enrolled students for this class
+        await fetchEnrolledStudents();
+        
+        // Switch to mark tab
+        setActiveTab('mark');
+        
+        // Scroll to student list
+        setTimeout(() => {
+          studentListRef.current?.scrollIntoView({ behavior: 'smooth' });
+        }, 100);
+        
+        triggerVibration();
+      }
+    } catch (err) {
+      console.error('Error viewing attendance details:', err);
+    }
+  };
+
   // Check if a schedule exists for the selected class and date
   const checkExistingSchedule = async () => {
     if (!selectedClass) return;
@@ -706,15 +744,7 @@ export default function AttendanceContent() {
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                         <button 
                           className="px-3 py-1.5 bg-indigo-100 text-indigo-700 rounded-md hover:bg-indigo-200"
-                          onClick={() => {
-                            const classObj = classes.find(c => c.classId === record.classId);
-                            if (classObj) {
-                              setSelectedClass(classObj);
-                              setSelectedDate(new Date(record.date).toISOString().split('T')[0]);
-                              setActiveTab('mark'); // Switch to mark tab to see details
-                              triggerVibration();
-                            }
-                          }}
+                          onClick={() => viewAttendanceDetails(record)}
                         >
                           View Details
                         </button>
@@ -754,15 +784,7 @@ export default function AttendanceContent() {
                     </div>
                     <button
                       className="p-2 rounded-full hover:bg-indigo-50 text-indigo-600"
-                      onClick={() => {
-                        const classObj = classes.find(c => c.classId === record.classId);
-                        if (classObj) {
-                          setSelectedClass(classObj);
-                          setSelectedDate(new Date(record.date).toISOString().split('T')[0]);
-                          setActiveTab('mark'); // Switch to mark tab
-                          triggerVibration();
-                        }
-                      }}
+                      onClick={() => viewAttendanceDetails(record)}
                     >
                       <ChevronRightIcon className="h-5 w-5" />
                     </button>
