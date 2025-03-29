@@ -27,3 +27,6 @@ const connect = async ()=>{
 }
 
 export  default connect;
+
+//SINCH_ACCESSKEY=a17782a7-8803-4002-a996-36a2368ca8e8
+//SINCH_PROJECTID=b8fcbbdc-b5a5-490b-a9f6-49fe86df0215
