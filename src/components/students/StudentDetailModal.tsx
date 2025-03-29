@@ -194,6 +194,14 @@ const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
     
     setSavingAdjustedFee(true);
     try {
+      // Ensure we're sending a valid number
+      const validFee = Number(adjustedFee);
+      if (isNaN(validFee)) {
+        throw new Error('Invalid fee amount');
+      }
+      
+      console.log('Sending PATCH request with fee:', validFee);
+      
       const response = await fetch('/api/enrollment', {
         method: 'PATCH',
         headers: {
@@ -201,30 +209,41 @@ const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
         },
         body: JSON.stringify({
           _id: selectedEnrollmentId,
-          adjustedFee: adjustedFee
+          adjustedFee: validFee
         }),
       });
       
       if (!response.ok) {
-        throw new Error('Failed to update fee');
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to update fee');
       }
       
       const updatedEnrollment = await response.json();
+      console.log('Response from server:', updatedEnrollment);
       
-      // Update the enrollment in the local state
-      setEnrollments(enrollments.map(e => 
-        e._id === selectedEnrollmentId ? updatedEnrollment : e
-      ));
+      // Immediately update the enrollment in local state
+      setEnrollments(prevEnrollments => 
+        prevEnrollments.map(e => 
+          e._id === selectedEnrollmentId ? updatedEnrollment : e
+        )
+      );
       
       setAlertMessage({ 
         type: 'success', 
         message: 'Adjusted fee has been updated successfully' 
       });
-    } catch (err) {
+      
+      // Re-fetch all data to ensure everything is in sync
+      setTimeout(() => {
+        if (student?.sid) {
+          fetchStudentEnrollments();
+        }
+      }, 500);
+    } catch (err: any) {
       console.error('Error updating fee:', err);
       setAlertMessage({
         type: 'error',
-        message: 'Failed to update adjusted fee'
+        message: err.message || 'Failed to update adjusted fee'
       });
     } finally {
       setSavingAdjustedFee(false);
@@ -612,56 +631,68 @@ const AdjustFeeDialog: React.FC<AdjustFeeDialogProps> = ({
 }) => {
   const [fee, setFee] = useState<number>(currentFee);
 
+  // Reset fee when dialog opens with new currentFee
+  useEffect(() => {
+    setFee(currentFee);
+  }, [currentFee, isOpen]);
+
   if (!isOpen) return null;
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    // Ensure we're passing a number
+    onSave(Number(fee));
+  };
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 z-[70] flex items-center justify-center p-4">
       <div className="bg-white rounded-lg shadow-xl max-w-sm w-full p-5">
         <h3 className="text-lg font-medium text-gray-900 mb-3">Adjust Monthly Fee</h3>
         
-        <div className="mb-4">
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            Standard Fee: ${currentFee}
-          </label>
-          <input
-            type="number"
-            value={fee}
-            onChange={(e) => setFee(Number(e.target.value))}
-            className="w-full border rounded-md px-3 py-2 focus:ring-indigo-500 focus:border-indigo-500"
-            placeholder="Enter adjusted fee amount"
-            min="0"
-            step="0.01"
-          />
-          <p className="text-xs text-gray-500 mt-1">
-            Enter the adjusted fee amount for this student. Leave as is for standard fee.
-          </p>
-        </div>
-        
-        <div className="flex justify-end space-x-3">
-          <button
-            type="button"
-            onClick={onClose}
-            disabled={loading}
-            className="px-3 py-1.5 border border-gray-300 rounded-md text-gray-700 text-sm hover:bg-gray-50"
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            onClick={() => onSave(fee)}
-            disabled={loading}
-            className="px-3 py-1.5 bg-blue-600 text-white rounded-md text-sm hover:bg-blue-700 flex items-center"
-          >
-            {loading ? (
-              <>
-                <div className="animate-spin h-4 w-4 border-2 border-white border-opacity-20 border-t-white rounded-full mr-2"></div>
-                Saving...
-              </>
-            ) : (
-              'Save Fee'
-            )}
-          </button>
-        </div>
+        <form onSubmit={handleSubmit}>
+          <div className="mb-4">
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Standard Fee: ${currentFee}
+            </label>
+            <input
+              type="number"
+              value={fee}
+              onChange={(e) => setFee(Number(e.target.value))}
+              className="w-full border rounded-md px-3 py-2 focus:ring-indigo-500 focus:border-indigo-500"
+              placeholder="Enter adjusted fee amount"
+              min="0"
+              step="0.01"
+            />
+            <p className="text-xs text-gray-500 mt-1">
+              Enter the adjusted fee amount for this student. Leave as is for standard fee.
+            </p>
+          </div>
+          
+          <div className="flex justify-end space-x-3">
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={loading}
+              className="px-3 py-1.5 border border-gray-300 rounded-md text-gray-700 text-sm hover:bg-gray-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={loading}
+              className="px-3 py-1.5 bg-blue-600 text-white rounded-md text-sm hover:bg-blue-700 flex items-center"
+            >
+              {loading ? (
+                <>
+                  <div className="animate-spin h-4 w-4 border-2 border-white border-opacity-20 border-t-white rounded-full mr-2"></div>
+                  Saving...
+                </>
+              ) : (
+                'Save Fee'
+              )}
+            </button>
+          </div>
+        </form>
       </div>
     </div>
   );

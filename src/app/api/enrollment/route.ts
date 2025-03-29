@@ -121,9 +121,51 @@ export async function PATCH(request: NextRequest) {
       }
     }
     
+    // Debug: Log what we're trying to update
+    console.log('Updating enrollment with ID:', body._id);
+    console.log('Raw update data:', body);
+    
+    // Create a clean update object with only the fields we want to update
+    const updateData: any = {};
+    
+    if (body.status !== undefined) updateData.status = body.status;
+    if (body.endDate !== undefined) updateData.endDate = body.endDate;
+    if (body.notes !== undefined) updateData.notes = body.notes;
+    
+    // Get original enrollment to check for adjustedFee changes
+    const originalEnrollment = await Enrollment.findById(body._id);
+    if (!originalEnrollment) {
+      return NextResponse.json({ error: 'Enrollment not found' }, { status: 404 });
+    }
+    
+    // Flag to track if adjustedFee was changed
+    let adjustedFeeChanged = false;
+    let newAdjustedFee = null;
+    
+    // Handle adjustedFee specifically - ensure it's a number
+    if (body.adjustedFee !== undefined) {
+      // Convert to number and handle potential NaN values
+      const adjustedFeeValue = Number(body.adjustedFee);
+      if (!isNaN(adjustedFeeValue)) {
+        updateData.adjustedFee = adjustedFeeValue;
+        newAdjustedFee = adjustedFeeValue;
+        console.log('Setting adjustedFee to:', adjustedFeeValue);
+        
+        // Check if value actually changed
+        if (originalEnrollment.adjustedFee !== adjustedFeeValue) {
+          adjustedFeeChanged = true;
+        }
+      } else {
+        console.warn('Invalid adjustedFee value:', body.adjustedFee);
+      }
+    }
+    
+    console.log('Processed update data:', updateData);
+    
+    // Directly update the record
     const updatedEnrollment = await Enrollment.findByIdAndUpdate(
       body._id,
-      { $set: body },
+      updateData,  // Use direct update object instead of $set
       { new: true, runValidators: true }
     );
     
@@ -131,8 +173,66 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ error: 'Enrollment not found' }, { status: 404 });
     }
     
+    // Update payment records if adjustedFee changed
+    if (adjustedFeeChanged) {
+      try {
+        // Import Payment model dynamically to avoid circular dependencies
+        const Payment = (await import('@/utils/models/paymentSchema')).default;
+        
+        // Find all payment records for this student and class
+        const payments = await Payment.find({
+          'student.sid': updatedEnrollment.student.sid,
+          'class.classId': updatedEnrollment.class.classId
+        });
+        
+        console.log(`Found ${payments.length} payment records to update`);
+        
+        // Update each payment record with recalculated amount
+        for (const payment of payments) {
+          // Get enrollment date
+          const enrollmentDate = updatedEnrollment.startDate ? 
+            new Date(updatedEnrollment.startDate) : 
+            new Date(updatedEnrollment.createdAt);
+            
+          // Calculate prorated amount based on new adjustedFee
+          let newAmount;
+          
+          // Import and use the calculateProratedAmount function
+          const { calculateProratedAmount } = await import('../payment/route');
+          
+          // If payment record already exists, recalculate with the adjusted fee
+          newAmount = calculateProratedAmount(
+            newAdjustedFee ?? originalEnrollment.adjustedFee, // Use the new adjusted fee or fall back to original
+            enrollmentDate,
+            payment.month,
+            payment.academicYear
+          );
+          
+          console.log(`Updating payment ${payment._id}: old amount=${payment.amount}, new amount=${newAmount}`);
+          
+          // Update the payment amount
+          await Payment.findByIdAndUpdate(
+            payment._id,
+            { 
+              amount: newAmount,
+              notes: payment.notes + ` Amount adjusted to ${newAmount} based on enrollment fee change.`
+            }
+          );
+        }
+        
+        console.log('Successfully updated payment records with new adjusted fee');
+      } catch (error) {
+        console.error('Error updating payment records:', error);
+        // Don't fail the whole operation if payment updates fail
+      }
+    }
+    
+    // Debug: Log the updated enrollment
+    console.log('Updated enrollment:', updatedEnrollment);
+    
     return NextResponse.json(updatedEnrollment);
   } catch (error: any) {
+    console.error('Error updating enrollment:', error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
