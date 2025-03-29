@@ -60,6 +60,7 @@ const enrollmentSchema = new Schema<IEnrollment>(
     endDate: { type: Date },
     adjustedFee: {
       type: Number,
+      default: undefined, // Make sure it's explicitly defined
       description: 'The final fee amount after any discounts or adjustments'
     },
     notes: { type: String }
